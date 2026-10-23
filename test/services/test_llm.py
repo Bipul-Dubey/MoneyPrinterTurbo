@@ -36,8 +36,8 @@ RUN_INTEGRATION_TESTS = os.environ.get("MPT_RUN_INTEGRATION_TESTS", "").lower() 
 class TestScriptPromptOptions(unittest.TestCase):
     def test_normalize_text_response_preserves_internal_newlines(self):
         """
-        归一化只清理首尾空白，不能删除正文内部的换行。双换行用于区分脚本
-        段落，单换行也可能是模型按语义返回的字幕行。
+        Normalization only cleans leading/trailing whitespace and must not remove internal newlines. Double newlines separate
+        script paragraphs, and single newlines may be semantic subtitle lines from the model.
         """
         result = llm._normalize_text_response(
             "\n  第一行\n第二行\n\n第三段  \n",
@@ -48,8 +48,8 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_normalize_text_response_removes_think_blocks(self):
         """
-        reasoning 模型可能返回 `<think>...</think>`。脚本生成链路必须只保留
-        最终正文，避免思考过程进入字幕和配音。
+        Reasoning models may return `<think>...</think>`. The script generation pipeline must only retain
+        the final body text, preventing thought processes from entering subtitles and voiceover.
         """
         result = llm._normalize_text_response(
             "<think>\nI should reason here.\n</think>\n测试成功",
@@ -60,23 +60,23 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_normalize_text_response_rejects_think_only_response(self):
         """
-        如果模型只返回思考块而没有最终答案，应视为空内容，触发重试或明确错误。
+        If the model only returns a thought block without a final answer, treat it as empty content to trigger retry or explicit error.
         """
         with self.assertRaises(ValueError):
             llm._normalize_text_response("<think>hidden reasoning</think>", "minimax")
 
     def test_normalize_text_response_removes_unclosed_think_block(self):
         """
-        某些网关可能因为截断只返回未闭合的 `<think>`。这种内容同样不能
-        进入最终脚本；如果清理后没有正文，就应该按空响应处理。
+        Some gateways may return unclosed `<think>` due to truncation. This content must also not enter
+        the final script; if no body remains after cleaning, treat it as an empty response.
         """
         with self.assertRaises(ValueError):
             llm._normalize_text_response("<think>hidden reasoning", "minimax")
 
     def test_normalize_text_response_removes_reasoning_before_unopened_close(self):
         """
-        起始 `<think>` 位于对话模板中时，模型输出只包含推理和闭合标签。
-        闭合标签之前的推理不能进入脚本；只有推理时同样按空响应处理。
+        When the opening `<think>` is inside the chat template, the model output only contains reasoning and the closing tag.
+        Reasoning prior to the closing tag must not enter the script; if only reasoning is present, treat as empty response.
         """
         result = llm._normalize_text_response(
             "The user wants a sea script. Let me plan.\n</think>\n\n"
@@ -90,8 +90,8 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_build_script_prompt_appends_advanced_requirements(self):
         """
-        高级文案要求只作为附加约束，不替换默认系统提示词。
-        这样普通用户不配置时仍然走稳定默认规则，高级用户也能细化风格。
+        Advanced script requirements serve only as additional constraints without replacing the default system prompt.
+        This ensures standard users get reliable default rules while advanced users can refine styles.
         """
         prompt = llm.build_script_prompt(
             video_subject="咖啡",
@@ -109,8 +109,8 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_custom_system_prompt_keeps_runtime_context(self):
         """
-        自定义 system prompt 会替换默认脚本规则，但视频主题、语言、段落数
-        仍由服务层统一追加，避免高级用户漏写必要上下文。
+        Custom system prompts replace default script rules, but video subject, language, and paragraph count
+        are still appended by the service layer, preventing advanced users from omitting necessary context.
         """
         prompt = llm.build_script_prompt(
             video_subject="露营",
@@ -147,7 +147,7 @@ class TestScriptPromptOptions(unittest.TestCase):
         self.assertIn("开头更有悬念", captured["prompt"])
 
     def test_generate_script_reuses_submitted_config_snapshot(self):
-        """WebUI 后台任务结束后应用新配置，不能改变正在重试的模型请求。"""
+        """Applying new configuration after WebUI background tasks finish must not alter in-flight retry model requests."""
         captured = {}
         app_config = {
             "llm_provider": "openai",
@@ -238,9 +238,9 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_generate_terms_can_request_script_ordered_keywords(self):
         """
-        按文案顺序匹配素材依赖 LLM 返回有序关键词。这里不调用真实模型，
-        只验证服务层会把“按脚本叙事顺序输出”的约束写入 prompt，避免
-        后续素材下载虽然顺序化，但关键词仍然是全局无序主题词。
+        Matching materials in script order relies on LLM returning ordered keywords. Without calling real models,
+        verify here that the service layer includes the constraint 'output in script narrative order' in prompt,
+        preventing sequential downloads from using globally unordered topic terms.
         """
         captured = {}
 
@@ -264,10 +264,10 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_generate_terms_returns_empty_list_on_provider_error(self):
         """
-        Provider 错误必须保持 generate_terms 的 List[str] 返回契约。
+        Provider errors must maintain the List[str] return contract of generate_terms.
 
-        非空的 ``Error: ...`` 字符串在 Python 中是真值；如果直接返回，任务层
-        会把它当成有效关键词，素材下载层随后还可能逐字符发起搜索请求。
+        A non-empty ``Error: ...`` string is truthy in Python; if returned directly, the task layer
+        would treat it as a valid keyword, and the material download layer might subsequently search character by character.
         """
         with patch.object(
             llm,
@@ -302,8 +302,8 @@ class TestScriptPromptOptions(unittest.TestCase):
 
     def test_video_script_request_rejects_invalid_advanced_options(self):
         """
-        API 请求模型需要限制高级 prompt 参数，避免外部调用绕过 WebUI
-        传入异常段落数或超长提示词，导致模型成本和结果不可控。
+        API request models must validate advanced prompt parameters to prevent external calls bypassing WebUI
+        and passing abnormal paragraph numbers or excessively long prompts, causing uncontrolled model costs and outputs.
         """
         with self.assertRaises(ValidationError):
             VideoScriptRequest(video_subject="咖啡", paragraph_number=0)
@@ -324,7 +324,7 @@ class TestLLMConnection(unittest.TestCase):
         config.app.update(self.original_app_config)
 
     def test_connection_sends_one_minimal_request(self):
-        """连接测试只发送一次固定最小请求，不触发脚本生成重试。"""
+        """Connection testing sends only a single fixed minimal request without triggering script generation retries."""
         with (
             patch.object(llm, "_generate_response", return_value="OK") as generate,
             patch.object(llm, "perf_counter", side_effect=[10.0, 10.25]),
@@ -339,7 +339,7 @@ class TestLLMConnection(unittest.TestCase):
         self.assertEqual(result, (True, "", 0.25))
 
     def test_connection_applies_bounded_timeout_and_disables_sdk_retries(self):
-        """连接测试的短超时与禁用重试必须作用到实际 SDK 客户端（issue #1642）。"""
+        """Short timeouts and disabled retries during connection testing must apply to the actual SDK client (issue #1642)."""
         config.app.update(
             {
                 "llm_provider": "openai",
@@ -369,7 +369,7 @@ class TestLLMConnection(unittest.TestCase):
         )
 
     def test_connection_failure_hint_for_timeout_errors(self):
-        """超时/连接失败要附上排查方向，而不是只显示 SDK 原始文案。"""
+        """Timeouts and connection failures should provide troubleshooting hints rather than just showing raw SDK text."""
         with (
             patch.object(
                 llm, "_generate_response", return_value="Error: Request timed out."
@@ -386,7 +386,7 @@ class TestLLMConnection(unittest.TestCase):
         self.assertIn("proxy", error)
 
     def test_connection_returns_provider_error(self):
-        """Provider 返回错误时应保留可诊断信息，并报告本次请求耗时。"""
+        """When a Provider returns an error, retain diagnostic information and report elapsed time for this request."""
         with (
             patch.object(
                 llm,
@@ -400,7 +400,7 @@ class TestLLMConnection(unittest.TestCase):
         self.assertEqual(result, (False, "invalid API key", 0.5))
 
     def test_connection_rejects_empty_response(self):
-        """极端情况下的空响应应显示明确错误，而不是误报连接成功。"""
+        """Empty responses in extreme cases should show explicit errors rather than falsely reporting successful connection."""
         with (
             patch.object(llm, "_generate_response", return_value=""),
             patch.object(llm, "perf_counter", side_effect=[30.0, 31.0]),
@@ -420,7 +420,7 @@ class TestGenerateResponseTransportLimits(unittest.TestCase):
 
     @staticmethod
     def _fake_client():
-        """返回一个最小可用客户端，让 `_generate_response` 走完请求分支。"""
+        """Returns a minimal usable client allowing `_generate_response` to complete request branches."""
         message = types.SimpleNamespace(content="ok")
         choice = types.SimpleNamespace(message=message)
         completion = types.SimpleNamespace(choices=[choice])
@@ -431,7 +431,7 @@ class TestGenerateResponseTransportLimits(unittest.TestCase):
         )
 
     def test_transport_limits_forwarded_to_openai_compatible_clients(self):
-        """显式传入的超时/重试约束必须作用到全部 OpenAI 兼容客户端。"""
+        """Explicitly passed timeout/retry constraints must apply to all OpenAI-compatible clients."""
         cases = [
             (
                 "openai",
@@ -486,7 +486,7 @@ class TestGenerateResponseTransportLimits(unittest.TestCase):
                 self.assertEqual(kwargs.get("max_retries"), 0)
 
     def test_default_generation_keeps_sdk_defaults(self):
-        """不传约束时客户端构造参数保持原样，生成链路行为不变。"""
+        """When no constraints are passed, client constructor parameters remain intact and generation behavior is unchanged."""
         config.app.update(
             {
                 "llm_provider": "openai",
@@ -519,7 +519,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         config.app.update(self.original_app_config)
 
     def test_current_default_model_names(self):
-        """WebUI 与服务层必须共享同一组默认模型，避免展示值和请求值漂移。"""
+        """WebUI and service layers must share the same default models to prevent drift between displayed and requested values."""
         self.assertEqual(get_llm_provider("openai").default_model, "gpt-5.5")
         anthropic = get_llm_provider("anthropic")
         self.assertEqual(anthropic.default_model, "claude-sonnet-5")
@@ -634,7 +634,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(pollinations.adapter, "openai_compatible")
 
     def test_provider_defaults_are_not_persisted_as_user_overrides(self):
-        """默认值只用于运行和展示，只有不同值才应写入用户配置。"""
+        """Default values are only used for runtime and display; only differing values should be written to user configuration."""
         self.assertEqual(
             normalize_provider_override("gpt-5.5", "gpt-5.5"),
             "",
@@ -649,7 +649,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         )
 
     def test_provider_registry_has_unique_stable_ids(self):
-        """Registry 是 Provider 列表的唯一数据源，ID 必须唯一且默认项存在。"""
+        """Registry is the sole source of truth for Provider lists; IDs must be unique and the default item must exist."""
         provider_ids = [provider.provider_id for provider in LLM_PROVIDER_REGISTRY]
 
         self.assertEqual(len(provider_ids), len(set(provider_ids)))
@@ -657,7 +657,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn(DEFAULT_LLM_PROVIDER_ID, LLM_PROVIDERS)
 
     def test_provider_registry_preserves_product_group_order(self):
-        """下拉顺序按推荐、原厂、聚合平台、本地部署和其它服务排列。"""
+        """Dropdown order arranges recommended, original vendors, aggregators, local deployments, and other services."""
         self.assertEqual(
             [provider.provider_id for provider in LLM_PROVIDER_REGISTRY],
             [
@@ -752,7 +752,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         )
 
     def test_provider_registry_uses_conventional_locale_and_config_keys(self):
-        """统一命名规则可避免 WebUI 为每个 Provider 增加硬编码映射。"""
+        """Uniform naming conventions prevent WebUI from adding hardcoded mappings for each Provider."""
         for provider in LLM_PROVIDER_REGISTRY:
             self.assertEqual(
                 provider.label_key,
@@ -768,7 +768,7 @@ class TestLiteLLMProvider(unittest.TestCase):
             )
 
     def test_registry_replaces_deprecated_provider_models(self):
-        """历史默认模型应自动迁移，避免升级后继续使用已移除的接入语义。"""
+        """Deprecated historical default models should be automatically migrated to avoid using removed access semantics after upgrades."""
         cloudflare = get_llm_provider("cloudflare")
         gemini = get_llm_provider("gemini")
 
@@ -800,7 +800,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         )
 
     def test_provider_tip_templates_accept_registry_defaults(self):
-        """所有语言的 Provider 提示模板都必须能安全注入 Registry 默认值。"""
+        """Provider tips templates across all languages must safely interpolate Registry defaults."""
         i18n_dir = Path(__file__).parent.parent.parent / "webui" / "i18n"
         for locale_file in i18n_dir.glob("*.json"):
             translations = json.loads(locale_file.read_text(encoding="utf-8"))[
@@ -830,7 +830,7 @@ class TestLiteLLMProvider(unittest.TestCase):
                 self.assertNotIn("{default_base_url}", rendered)
 
     def test_primary_provider_tips_use_consistent_structure(self):
-        """中英文配置说明统一展示 API Key、Base URL 和模型名称。"""
+        """Configuration instructions in Chinese and English consistently display API Key, Base URL, and Model Name."""
         i18n_dir = Path(__file__).parent.parent.parent / "webui" / "i18n"
         for language in ("zh", "en"):
             translations = json.loads(
@@ -855,7 +855,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn("offer ends December 31, 2026", en_kimi_tips)
 
     def test_required_api_key_providers_have_clickable_entry_points(self):
-        """需要密钥的 Provider 必须提供统一申请入口，避免 WebUI 只给出文字。"""
+        """Providers requiring keys must offer unified application entry points, rather than WebUI showing plain text."""
         i18n_dir = Path(__file__).parent.parent.parent / "webui" / "i18n"
         locale_translations = {
             locale_file.stem: json.loads(locale_file.read_text(encoding="utf-8"))[
@@ -903,7 +903,7 @@ class TestLiteLLMProvider(unittest.TestCase):
                     )
 
     def test_service_endpoint_registry_references_valid_stable_ids(self):
-        """服务区域必须通过唯一稳定 ID 关联，不能依赖链接或展示文案。"""
+        """Service regions must be associated via unique stable IDs, independent of links or display text."""
         for provider in LLM_PROVIDER_REGISTRY:
             endpoint_ids = [
                 endpoint.endpoint_id for endpoint in provider.service_endpoints
@@ -923,7 +923,7 @@ class TestLiteLLMProvider(unittest.TestCase):
                 self.assertIn(provider.international_service_endpoint_id, endpoint_ids)
 
     def test_kimi_service_endpoint_selection_preserves_existing_configs(self):
-        """已有 Kimi 配置不能因界面语言变化而被静默切换到另一套账号体系。"""
+        """Existing Kimi configurations must not be silently switched to another account system due to UI language changes."""
         provider = get_llm_provider("moonshot")
 
         china = provider.select_service_endpoint(
@@ -948,7 +948,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         )
 
     def test_kimi_fresh_config_uses_interface_region(self):
-        """新配置按界面语言推荐站点，但仍由用户在 WebUI 中明确选择。"""
+        """New configurations recommend endpoints based on UI language, but users still explicitly select in WebUI."""
         provider = get_llm_provider("moonshot")
 
         china = provider.select_service_endpoint(
@@ -967,7 +967,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn("platform.kimi.ai", global_endpoint.api_key_url)
 
     def test_kimi_endpoint_selection_does_not_depend_on_marketing_url(self):
-        """更新推广参数不能改变国际站的业务选择结果。"""
+        """Updating promotional tracking parameters must not alter business endpoint selection for the international site."""
         provider = get_llm_provider("moonshot")
         global_endpoint = replace(
             provider.international_service_endpoint,
@@ -991,7 +991,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(selected.api_key_url, global_endpoint.api_key_url)
 
     def test_example_config_does_not_duplicate_registry_defaults(self):
-        """示例配置只保存用户覆盖值，默认模型和地址由 Registry 唯一维护。"""
+        """Example configurations only save user overrides; default models and URLs are solely maintained by Registry."""
         config_path = Path(__file__).parent.parent.parent / "config.example.toml"
         app_config = tomllib.loads(config_path.read_text(encoding="utf-8"))["app"]
 
@@ -1017,7 +1017,7 @@ class TestLiteLLMProvider(unittest.TestCase):
                     )
 
     def test_removed_ernie_provider_is_unsupported(self):
-        """移除 ERNIE 后，遗留配置应返回明确错误，不再发起旧 OAuth 请求。"""
+        """After removing ERNIE, legacy configs should return explicit errors without issuing legacy OAuth requests."""
         config.app["llm_provider"] = "ernie"
 
         with patch.object(llm, "OpenAI") as openai_client:
@@ -1027,7 +1027,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn("unsupported llm provider", result)
 
     def test_pollinations_requires_api_key_before_request(self):
-        """新统一 API 要求鉴权，缺少 Key 时不得发送匿名生成请求。"""
+        """The unified API requires authentication; anonymous generation requests must not be sent when Key is missing."""
         config.app.update(
             {
                 "llm_provider": "pollinations",
@@ -1044,7 +1044,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn("api_key is not set", result)
 
     def test_pollinations_uses_unified_openai_compatible_api(self):
-        """历史地址和模型名应自动迁移，并通过统一 Chat Completions API 调用。"""
+        """Legacy URLs and model names should be automatically migrated and invoked via the unified Chat Completions API."""
         config.app.update(
             {
                 "llm_provider": "pollinations",
@@ -1086,7 +1086,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(result, "hello\npollinations")
 
     def test_anthropic_uses_openai_compatible_chat_completions(self):
-        """Claude 走 Anthropic 的 OpenAI 兼容端点，不需要额外适配器分支。"""
+        """Claude uses Anthropic's OpenAI-compatible endpoint without requiring extra adapter branches."""
         config.app.update(
             {
                 "llm_provider": "anthropic",
@@ -1128,7 +1128,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(result, "hello\nclaude")
 
     def test_gemini_uses_google_genai_client(self):
-        """Gemini 适配器应通过新版 SDK 的统一 Client 发起内容生成请求。"""
+        """The Gemini adapter should initiate content generation requests via the unified Client in the new SDK."""
         config.app.update(
             {
                 "llm_provider": "gemini",
@@ -1169,7 +1169,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertTrue(captured["closed"])
 
     def test_cloudflare_requires_account_id_before_request(self):
-        """Cloudflare 缺少 Account ID 时应在本地失败，不发送无效请求。"""
+        """Cloudflare should fail locally when Account ID is missing, avoiding invalid requests."""
         config.app.update(
             {
                 "llm_provider": "cloudflare",
@@ -1186,7 +1186,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertIn("account_id is not set", result)
 
     def test_cloudflare_uses_ai_gateway_openai_endpoint(self):
-        """Cloudflare Provider 必须走 AI Gateway，不再调用 Workers AI 接口。"""
+        """The Cloudflare Provider must use AI Gateway rather than calling Workers AI endpoints."""
         config.app.update(
             {
                 "llm_provider": "cloudflare",
@@ -1243,11 +1243,10 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_litellm_provider_returns_normalized_text(self):
         """
-        验证 LiteLLM provider 的主路径不依赖真实网络和私有 API key。
+        Verify that the main path of LiteLLM provider does not depend on real network or private API keys.
 
-        这里用 fake module 注入 `sys.modules`，直接覆盖动态 import 的
-        `litellm.completion()`，确保测试稳定覆盖 `_generate_response()` 里的
-        litellm 分支。
+        Inject a fake module into `sys.modules` to directly cover the dynamically imported
+        `litellm.completion()`, ensuring test coverage for the litellm branch in `_generate_response()`.
         """
         self._use_litellm_provider()
 
@@ -1303,9 +1302,8 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_litellm_provider_handles_empty_message(self):
         """
-        某些 OpenAI-compatible 网关在内容过滤或安全拦截时会返回
-        HTTP 200，但 `choices[0].message` 为 None。这里必须返回
-        可诊断的错误，而不是抛出 AttributeError。
+        Some OpenAI-compatible gateways return HTTP 200 with `choices[0].message` being None
+        during content filtering or security blocks. Must return a diagnostic error rather than raising AttributeError.
         """
         self._use_litellm_provider()
 
@@ -1356,9 +1354,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_openai_provider_error_redacts_embedded_base_url_credentials(self):
         """
-        自定义 OpenAI-compatible base_url 可能包含代理网关的 user:pass。
-        SDK 抛错时常会把 URL 带回异常信息，这里验证最终返回给 WebUI/API 的
-        `Error:` 文案不会泄露这些凭据。
+        Custom OpenAI-compatible base_urls may include proxy gateway user:pass.
+        SDK exceptions often include the URL in error messages; verify here that the final `Error:` text
+        returned to WebUI/API does not leak these credentials.
         """
         config.app["llm_provider"] = "groq"
         config.app["groq_api_key"] = "groq-key"
@@ -1431,9 +1429,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_qwen_provider_reads_chat_choices_content(self):
         """
-        DashScope chat 模式会把文本放在 `output.choices[0].message.content`。
-        这里覆盖 issue #966 报告的 `output.text is None` 场景，避免再次触发
-        `'NoneType' object has no attribute 'replace'`。
+        DashScope chat mode places text in `output.choices[0].message.content`.
+        This covers the `output.text is None` scenario reported in issue #966, preventing
+        reoccurrence of `'NoneType' object has no attribute 'replace'`.
         """
         self._use_qwen_provider()
         response = {
@@ -1449,7 +1447,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(result, "你好\n世界")
 
     def test_qwen_provider_falls_back_to_output_text(self):
-        """保留旧 DashScope completion 响应结构的兼容路径。"""
+        """Preserve backward compatibility path for legacy DashScope completion response structures."""
         self._use_qwen_provider()
         response = {"output": {"text": "旧格式\n响应"}}
 
@@ -1459,7 +1457,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(result, "旧格式\n响应")
 
     def test_qwen_provider_reports_empty_text(self):
-        """Qwen 空响应应返回可诊断错误，而不是底层 AttributeError。"""
+        """Qwen empty responses should return diagnostic errors rather than underlying AttributeError."""
         self._use_qwen_provider()
         response = {
             "output": {"text": None, "choices": [{"message": {"content": None}}]}
@@ -1473,7 +1471,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertNotIn("NoneType", result)
 
     def test_qwen_provider_reports_empty_choices(self):
-        """Qwen chat 响应 choices 为空时应返回明确错误。"""
+        """Return an explicit error when Qwen chat response choices is empty."""
         self._use_qwen_provider()
         response = {"output": {"text": None, "choices": []}}
 
@@ -1527,9 +1525,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_apimart_provider_uses_unwrapped_openai_compatible_endpoint(self):
         """
-        APIMart 文档同时展示 `/api/v1` 和 `/v1` 两组入口。前者的示例响应
-        带有 code/data 外层包装，OpenAI SDK 无法直接从顶层读取 choices；
-        LLM Provider 必须使用标准 `/v1` 地址，才能复用现有响应解析链路。
+        APIMart documentation displays both `/api/v1` and `/v1` endpoints. The former's example responses
+        wrap output in code/data, preventing the OpenAI SDK from directly reading choices from the top level;
+        the LLM Provider must use the standard `/v1` address to reuse the existing response parsing pipeline.
         """
         config.app["llm_provider"] = "apimart"
         config.app["apimart_api_key"] = "apimart-key"
@@ -1569,9 +1567,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_aihubmix_provider_uses_openai_compatible_client(self):
         """
-        AIHubMix 是 OpenAI-compatible 网关。这里用 fake OpenAI client
-        验证独立 Provider 会使用 Registry 中的默认地址和模型，避免真实网络
-        或私有 API Key 影响测试稳定性。
+        AIHubMix is an OpenAI-compatible gateway. Use a fake OpenAI client here
+        to verify that the standalone Provider uses the default URL and model from Registry,
+        preventing real network or private API keys from impacting test stability.
         """
         config.app["llm_provider"] = "aihubmix"
         config.app["aihubmix_api_key"] = "aihubmix-key"
@@ -1822,9 +1820,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_volcengine_provider_uses_openai_compatible_client(self):
         """
-        VolcEngine Ark 暴露 OpenAI-compatible Chat Completions。
-        这里用 fake OpenAI client 覆盖 provider 默认地址和默认模型，
-        避免真实网络或私有 API key 影响测试稳定性。
+        VolcEngine Ark exposes OpenAI-compatible Chat Completions.
+        Use a fake OpenAI client here to cover provider default URL and default model,
+        avoiding real network or private API keys affecting test stability.
         """
         config.app["llm_provider"] = "volcengine"
         config.app["volcengine_api_key"] = "volcengine-key"
@@ -1956,9 +1954,7 @@ class TestLiteLLMProvider(unittest.TestCase):
         self.assertEqual(result, "hello\nollama")
 
     def test_ollama_default_base_url_uses_localhost_outside_container(self):
-        """
-        普通本机运行时，Ollama 默认仍然使用 localhost，避免影响已有用户。
-        """
+        """On standard host runtime, Ollama still defaults to localhost to avoid affecting existing users."""
         self._use_ollama_provider()
 
         with patch.object(config, "is_running_in_container", return_value=False):
@@ -1966,8 +1962,8 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_ollama_default_base_url_uses_host_gateway_inside_container(self):
         """
-        容器内运行时，localhost 指向容器自身；默认改为 host.docker.internal，
-        方便 Docker Desktop 用户访问宿主机上的 Ollama。
+        Inside containers, localhost points to the container itself; change default to host.docker.internal,
+        making it convenient for Docker Desktop users to access Ollama on the host.
         """
         self._use_ollama_provider()
 
@@ -1979,8 +1975,8 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_ollama_default_base_url_falls_back_to_container_gateway(self):
         """
-        原生 Linux Docker 里不一定能解析 host.docker.internal。此时使用容器
-        默认网关作为兜底地址，比直接返回不可解析的 hostname 更稳。
+        Native Linux Docker might not resolve host.docker.internal. Using the container default
+        gateway as fallback is more reliable than directly returning an unresolvable hostname.
         """
         self._use_ollama_provider()
 
@@ -1994,9 +1990,7 @@ class TestLiteLLMProvider(unittest.TestCase):
             self._assert_ollama_base_url("http://172.17.0.1:11434/v1")
 
     def test_ollama_explicit_base_url_takes_precedence(self):
-        """
-        用户手动配置的 ollama_base_url 优先级最高，不受容器检测影响。
-        """
+        """Manually configured ollama_base_url has the highest priority and is unaffected by container detection."""
         self._use_ollama_provider(base_url="http://ollama:11434/v1")
 
         with patch.object(config, "is_running_in_container", return_value=True):
@@ -2004,9 +1998,8 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_mimo_provider_uses_openai_compatible_client(self):
         """
-        MiMo 官方接口兼容 OpenAI Chat Completions 协议。这里用 fake OpenAI
-        client 验证 provider 会使用 MiMo 独立配置和默认 base_url，不依赖
-        真实网络或私有 API Key。
+        MiMo official API is compatible with the OpenAI Chat Completions protocol. Use a fake OpenAI client
+        here to verify that the provider uses MiMo standalone configuration and default base_url without depending on real network or private API keys.
         """
         config.app["llm_provider"] = "mimo"
         config.app["mimo_api_key"] = "mimo-key"
@@ -2046,9 +2039,9 @@ class TestLiteLLMProvider(unittest.TestCase):
 
     def test_azure_provider_uses_azure_client_directly(self):
         """
-        Azure OpenAI 的鉴权、endpoint 和 api-version 都由 AzureOpenAI 客户端处理。
-        这个测试覆盖 issue #892：azure 分支必须直接调用 AzureOpenAI 创建的客户端，
-        不能继续落入普通 OpenAI-compatible 分支，否则会丢失 Azure 专用请求配置。
+        Azure OpenAI authentication, endpoint, and api-version are handled by the AzureOpenAI client.
+        This test covers issue #892: the azure branch must directly call the client created by AzureOpenAI
+        without falling into the regular OpenAI-compatible branch, which would lose Azure-specific request configurations.
         """
         config.app["llm_provider"] = "azure"
         config.app["azure_api_key"] = "azure-key"
@@ -2100,7 +2093,7 @@ class TestLiteLLMProvider(unittest.TestCase):
 
 
 class TestClaudeCodeProvider(unittest.TestCase):
-    """claude_code Provider 通过本机 claude CLI 调用订阅账号，不走 HTTP API。"""
+    """The claude_code Provider invokes subscription accounts via the local claude CLI, not HTTP API."""
 
     def setUp(self):
         self.original_app_config = dict(config.app)
@@ -2132,7 +2125,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
 
     # ------------------------------------------------------------- success
     def test_successful_generation_returns_cli_result_text(self):
-        """CLI 返回的 JSON 中只有 result 是正文，其余字段不应泄漏到脚本里。"""
+        """In the JSON returned by CLI, only result is body text; other fields should not leak into the script."""
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
             patch.object(
@@ -2151,7 +2144,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         )
 
     def test_generation_disables_tools_and_user_customizations(self):
-        """纯文本生成必须关闭全部工具和用户级定制，避免读写文件或加载 skills。"""
+        """Plain-text generation must disable all tools and user-level customizations to prevent file access or loading skills."""
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
             patch.object(
@@ -2173,8 +2166,8 @@ class TestClaudeCodeProvider(unittest.TestCase):
         )
 
     def test_prompt_is_sent_through_stdin_not_argv(self):
-        """Windows 上 npm 安装的 claude 是 claude.cmd，cmd.exe 会在第一个换行处截断
-        参数，多行 prompt 及其后的隔离参数都会丢失，因此 prompt 必须走 stdin。"""
+        """When claude is installed via npm on Windows as claude.cmd, cmd.exe truncates arguments
+        at the first newline, losing multiline prompts and subsequent isolation flags, so prompt must go via stdin."""
         prompt = "# Role: Generator\n\n## Goals:\nwrite something"
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
@@ -2192,7 +2185,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["input"], prompt)
 
     def test_model_name_is_only_passed_when_configured(self):
-        """模型名留空时应沿用 CLI 默认模型，而不是硬编码一个可能失效的 ID。"""
+        """When model name is empty, follow the CLI default model rather than hardcoding a potentially invalid ID."""
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
             patch.object(
@@ -2211,7 +2204,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
 
     # ------------------------------------------------- credential isolation
     def test_conflicting_credentials_are_removed_from_subprocess_env(self):
-        """环境里的 API Key 会让 CLI 绕过订阅登录并产生 API 计费，必须剔除。"""
+        """API Keys in the environment cause CLI to bypass subscription login and incur API charges; they must be removed."""
         polluted = {
             "PATH": "/usr/bin",
             "ANTHROPIC_API_KEY": "sk-ant-api03-should-not-be-used",
@@ -2224,7 +2217,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("ANTHROPIC_BASE_URL", env)
         self.assertNotIn("CLAUDE_CODE_USE_BEDROCK", env)
-        # 订阅令牌是容器内唯一的鉴权方式，必须保留。
+        # The subscription token is the only authentication method in containers and must be preserved.
         self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], "sk-ant-oat01-subscription")
         self.assertEqual(env["PATH"], "/usr/bin")
         self.assertCountEqual(
@@ -2233,7 +2226,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         )
 
     def test_every_cloud_provider_switch_is_removed(self):
-        """Bedrock / Vertex / Foundry / Mantle / Gateway 等开关都会改走云厂商计费。"""
+        """Switches such as Bedrock / Vertex / Foundry / Mantle / Gateway will divert billing to cloud providers."""
         switches = {
             "CLAUDE_CODE_USE_BEDROCK": "1",
             "CLAUDE_CODE_USE_VERTEX": "1",
@@ -2249,7 +2242,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertCountEqual(removed, list(switches))
 
     def test_foundry_credentials_are_removed(self):
-        """Foundry 凭证会让 CLI 走 Azure 计费，凭证和开关都必须剔除。"""
+        """Foundry credentials divert CLI to Azure billing; credentials and switches must both be removed."""
         foundry = {
             "CLAUDE_CODE_USE_FOUNDRY": "1",
             "ANTHROPIC_FOUNDRY_API_KEY": "foundry-key",
@@ -2268,7 +2261,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], "sk-ant-oat01")
 
     def test_auth_bypass_switches_are_removed(self):
-        """CLAUDE_CODE_SKIP_*_AUTH 会跳过供应商鉴权，同样不能带进子进程。"""
+        """CLAUDE_CODE_SKIP_*_AUTH bypasses provider authentication and must also not enter subprocesses."""
         bypasses = {
             "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
             "CLAUDE_CODE_SKIP_VERTEX_AUTH": "1",
@@ -2280,7 +2273,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertCountEqual(removed, list(bypasses))
 
     def test_credential_location_variables_are_preserved(self):
-        """*_CONFIG_DIR 只指明凭证位置，剔除反而会让已登录的订阅失效。"""
+        """*_CONFIG_DIR only specifies credential locations; removing it would invalidate logged-in subscriptions."""
         preserved = {
             "ANTHROPIC_CONFIG_DIR": "/home/user/.config/anthropic",
             "CLAUDE_CONFIG_DIR": "/home/user/.claude",
@@ -2291,7 +2284,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertEqual(removed, [])
 
     def test_unrelated_variables_are_never_removed(self):
-        """过滤只针对鉴权和供应商开关，不应影响 PATH、代理等常规变量。"""
+        """Filtering only targets authentication and provider switches without affecting regular variables like PATH or proxies."""
         env, removed = llm.build_claude_code_env(
             {"PATH": "/usr/bin", "HTTPS_PROXY": "http://proxy:3128", "HOME": "/root"}
         )
@@ -2307,7 +2300,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertEqual(removed, [])
 
     def test_subprocess_receives_sanitized_environment(self):
-        """适配器必须真的把清理后的环境传给子进程，而不只是计算一遍。"""
+        """The adapter must actually pass the sanitized environment to the subprocess, not just compute it."""
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
             patch.dict(
@@ -2325,7 +2318,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
 
     # ------------------------------------------------------- timeout config
     def test_timeout_accepts_numeric_and_string_values(self):
-        """TOML 里 300 是 int，"300" 是 str，两种写法都必须支持。"""
+        """In TOML 300 is int and "300" is str; both formats must be supported."""
         self.assertEqual(llm.coerce_claude_code_timeout(300), 300.0)
         self.assertEqual(llm.coerce_claude_code_timeout(300.5), 300.5)
         self.assertEqual(llm.coerce_claude_code_timeout("300"), 300.0)
@@ -2338,7 +2331,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         )
 
     def test_timeout_rejects_non_finite_and_invalid_values(self):
-        """nan / inf 会让 subprocess 永久阻塞，必须在配置阶段就拒绝。"""
+        """nan / inf causes subprocess to block permanently and must be rejected during configuration."""
         for invalid in (
             float("nan"),
             float("inf"),
@@ -2357,7 +2350,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
                     llm.coerce_claude_code_timeout(invalid)
 
     def test_integer_timeout_in_config_is_accepted(self):
-        """回归测试：int 超时曾触发 'int' object has no attribute 'strip'。"""
+        """Regression test: integer timeout previously triggered 'int' object has no attribute 'strip'."""
         config.app["claude_code_timeout"] = 30
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
@@ -2371,7 +2364,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], 30.0)
 
     def test_zero_and_false_timeouts_are_rejected_not_defaulted(self):
-        """0 / false 是无效取值，必须报错，而不是被默认值悄悄替换成 300 秒。"""
+        """0 / false are invalid values and must raise an error rather than being quietly replaced by the 300s default."""
         for invalid in (0, False, "0", 0.0):
             with self.subTest(invalid=invalid):
                 config.app["claude_code_timeout"] = invalid
@@ -2381,7 +2374,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
                 self.assertIn("claude_code_timeout", response)
 
     def test_field_default_applies_only_to_empty_values(self):
-        """Registry 默认值只在未配置时生效，合法的假值要原样进入校验。"""
+        """Registry defaults only apply when unconfigured; valid falsey values should enter validation as-is."""
         self.assertEqual(llm._resolve_provider_field_value(None, "300"), "300")
         self.assertEqual(llm._resolve_provider_field_value("", "300"), "300")
         self.assertEqual(llm._resolve_provider_field_value("   ", "300"), "300")
@@ -2406,7 +2399,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertIn("claude CLI not found", response)
 
     def test_missing_login_reports_setup_token_hint(self):
-        """容器内无法执行交互式 /login，错误提示必须给出可用的替代方式。"""
+        """Interactive /login cannot run in containers; error messages must provide actionable alternative setup."""
         payload = self._cli_payload("Not logged in · Please run /login", is_error=True)
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
@@ -2422,7 +2415,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", response)
 
     def test_exhausted_quota_surfaces_cli_message(self):
-        """用量耗尽同样是 is_error + 非零退出码，需要原样透出可读原因。"""
+        """Exhausted quota is also is_error + non-zero exit code; readable reasons need to be surfaced as-is."""
         payload = self._cli_payload(
             "Claude usage limit reached. Your limit will reset at 5pm.", is_error=True
         )
@@ -2473,7 +2466,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
         self.assertTrue(response.startswith("Error:"), response)
 
     def test_unsupported_cli_version_reports_upgrade_hint(self):
-        """旧版 CLI 没有 --tools / --safe-mode，应提示升级而不是丢出裸 stderr。"""
+        """Older CLIs lack --tools / --safe-mode; prompt for upgrades rather than dumping raw stderr."""
         with (
             patch.object(llm.shutil, "which", return_value="/usr/bin/claude"),
             patch.object(
@@ -2492,7 +2485,7 @@ class TestClaudeCodeProvider(unittest.TestCase):
 class TestRuntimeEnvironmentDetection(unittest.TestCase):
     def test_container_detection_ignores_plain_linux_cgroup_file(self):
         """
-        普通 Linux 也有 /proc/1/cgroup，不能因为文件存在就判定为容器。
+        Regular Linux also has /proc/1/cgroup; file presence alone cannot determine a container environment.
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             cgroup_path = Path(tmp_dir) / "cgroup"
@@ -2564,12 +2557,12 @@ class TestRuntimeEnvironmentDetection(unittest.TestCase):
 
 
 class TestSocialMetadata(unittest.TestCase):
-    """通用短视频发布文案元数据生成。"""
+    """Generic short video social metadata generation."""
 
     def test_build_prompt_auto_language_uses_source_language(self):
         """
-        language 默认 auto 时，不应该固定成某个国家或语种，而是让模型
-        跟随视频主题和脚本的语言，扩大 API 适用范围。
+        When language defaults to auto, do not fix it to a specific country or language, but let the model
+        follow the language of the video subject and script, expanding API applicability.
         """
         prompt = llm.build_social_metadata_prompt(
             video_subject="上海一日游",
@@ -2671,8 +2664,8 @@ class TestSocialMetadata(unittest.TestCase):
 
     def test_request_model_rejects_oversized_social_metadata_fields(self):
         """
-        外部 API 不能接受无限长的脚本和语言参数，否则会直接放大 LLM
-        token 成本。schema 层先拦截，服务层再做内部调用兜底。
+        External APIs cannot accept arbitrarily long script and language parameters, which would amplify LLM
+        token costs. The schema layer intercepts first, followed by internal service layer fallbacks.
         """
         with self.assertRaises(ValidationError):
             VideoSocialMetadataRequest(video_subject="x" * 501)

@@ -20,7 +20,7 @@ from app.utils import logging_utils
 
 @contextmanager
 def _capture_task_scoped_logs():
-    """按 WebUI 任务日志的同一条规则收集日志：只保留归属当前线程的记录。"""
+    """Collect logs according to the same WebUI task log rule: retain only records belonging to the current thread."""
     messages = []
     root_thread_id = threading.get_ident()
     handler_id = logger.add(
@@ -66,8 +66,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pexels_uses_tls_verification_by_default(self):
         """
-        默认路径必须开启 TLS 校验，避免素材 API key 和返回的素材 URL
-        在公共网络或不可信代理环境中被中间人攻击截获或篡改。
+        The default path must enable TLS verification to prevent material API keys and returned URLs
+        from being intercepted or tampered with by man-in-the-middle attacks on public networks or untrusted proxies.
         """
         config.app["pexels_api_keys"] = ["pexels-key"]
         config.app.pop("tls_verify", None)
@@ -249,8 +249,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_allows_explicit_tls_disable_for_proxy(self):
         """
-        少数企业代理会使用自签证书。该场景必须显式配置关闭 TLS 校验，
-        不能再由代码硬编码默认关闭。
+        A few corporate proxies use self-signed certificates. This scenario must explicitly configure TLS verification off,
+        rather than hardcoding it off by default in code.
         """
         config.app["pixabay_api_keys"] = ["pixabay-key"]
         config.app["tls_verify"] = False
@@ -288,9 +288,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_remote_searches_only_return_requested_orientation(self):
         """
-        三个素材源都必须只返回目标方向的素材，避免竖屏任务混入横屏素材后
-        通过 letterbox 产生明显黑边。Pexels 使用远端参数并在本地校验，
-        Pixabay 和 Coverr 使用响应尺寸做本地过滤。
+        All three material sources must only return materials with the target orientation, preventing landscape materials
+        from mixing into portrait tasks and creating noticeable black bars via letterboxing.
+        Pexels uses remote parameters and local verification; Pixabay and Coverr use response dimensions for local filtering.
         """
         config.app["pexels_api_keys"] = ["pexels-key"]
         config.app["pixabay_api_keys"] = ["pixabay-key"]
@@ -429,7 +429,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
             )
 
     def test_video_aspect_matching_rejects_unknown_dimensions(self):
-        """无法确认方向的素材不能进入严格的横竖屏候选列表。"""
+        """Materials with unverifiable orientation cannot enter the strict portrait/landscape candidate list."""
         self.assertTrue(
             material._matches_video_aspect(
                 1080,
@@ -480,7 +480,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         )
 
     def test_coverr_passes_orientation_filter_to_remote_search(self):
-        """Coverr 横竖屏搜索应在服务端筛选，方形素材继续使用本地尺寸校验。"""
+        """Coverr portrait/landscape searches should be filtered server-side; square materials continue using local dimension checks."""
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.proxy.clear()
         fake_response = SimpleNamespace(json=lambda: {"hits": []})
@@ -510,8 +510,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_square_search_preserves_crop_compatible_materials(self):
         """
-        Pixabay 和 Coverr 很少提供原生方形视频。方形输出必须继续接受可裁剪的
-        横屏素材，否则选择这两个来源时会在搜索阶段直接得到空列表。
+        Pixabay and Coverr rarely provide native square videos. Square outputs must continue accepting croppable
+        landscape materials; otherwise searching with these two sources would yield empty lists.
         """
         config.app["pixabay_api_keys"] = ["pixabay-key"]
         config.app["coverr_api_keys"] = ["coverr-key"]
@@ -601,8 +601,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_reports_cloudflare_challenge(self):
         """
-        Cloudflare Challenge 返回的是 HTML，不是 Pixabay API 的 JSON。
-        应直接说明服务端拦截原因，避免用户只看到没有上下文的 JSON 解析错误。
+        Cloudflare Challenge returns HTML, not Pixabay API JSON.
+        The server-side block reason should be stated directly, avoiding showing users an uncontextualized JSON parsing error.
         """
         config.app["pixabay_api_keys"] = ["pixabay-secret-key"]
         config.proxy.clear()
@@ -631,8 +631,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_reports_api_rate_limit(self):
         """
-        Pixabay 自身的 429 限流与 Cloudflare HTML Challenge 是不同问题。
-        保留 Retry-After 可以帮助用户判断何时重试，同时不记录响应正文。
+        Pixabay's own 429 rate limit is distinct from a Cloudflare HTML Challenge.
+        Preserving Retry-After helps users determine when to retry, without logging the response body.
         """
         config.app["pixabay_api_keys"] = ["pixabay-key"]
         config.proxy.clear()
@@ -658,8 +658,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_reports_non_json_response(self):
         """
-        即使状态码为 200，上游代理也可能返回登录页或其他非 JSON 内容。
-        该场景应记录响应类型，而不是向外暴露底层 JSONDecodeError。
+        Even with a 200 status code, upstream proxies might return a login page or other non-JSON content.
+        This scenario should log the response type rather than exposing the underlying JSONDecodeError.
         """
         config.app["pixabay_api_keys"] = ["pixabay-key"]
         config.proxy.clear()
@@ -686,8 +686,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_redacts_api_key_from_network_error(self):
         """
-        requests 的连接异常可能回显完整请求 URL。异常详情仍应保留用于排查，
-        但 URL 查询参数中的 Pixabay API Key 必须在写入日志前脱敏。
+        Connection exceptions from requests may echo the full request URL. Exception details should be preserved
+        for debugging, but Pixabay API keys in query parameters must be sanitized before logging.
         """
         api_key = "pixabay-secret-key"
         config.app["pixabay_api_keys"] = [api_key]
@@ -710,8 +710,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_search_pixabay_redacts_proxy_credentials_from_network_error(self):
         """
-        代理连接异常可能回显含认证信息的完整代理 URL。日志应保留异常类型，
-        但不能把代理用户名和密码持久化到日志文件。
+        Proxy connection exceptions may echo the full proxy URL containing credentials. Logs should preserve
+        the exception type but must not persist proxy username and password to log files.
         """
         proxy_url = "http://proxy-user:proxy-password@proxy.example.com:8080"
         config.app["pixabay_api_keys"] = ["pixabay-key"]
@@ -808,7 +808,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
             self.assertTrue(get.call_args.kwargs["stream"])
 
     def _save_video_with_chunks(self, chunks, headers=None):
-        """用假响应跑一次 save_video，返回期间写出的 info 日志。"""
+        """Run save_video once with fake response and return info logs written during execution."""
 
         class ChunkedResponse(_FakeVideoDownloadResponse):
             def __init__(self):
@@ -845,9 +845,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_save_video_reports_progress_during_a_slow_download(self):
         """
-        慢速网络下单个 4K 素材要下载数分钟，期间没有任何日志，任务看起来像
-        卡死。超过心跳间隔后必须记录已下载大小、总大小和速度；日志里只能出现
-        缓存文件名，下载地址可能带密钥，不能写进日志。
+        On slow networks, downloading a single 4K asset takes minutes with no logs, appearing frozen.
+        After exceeding the heartbeat interval, downloaded size, total size, and speed must be logged;
+        only cache filenames can appear in logs as download URLs may contain secret keys.
         """
         megabyte = b"x" * (1024 * 1024)
         with patch.object(material, "_DOWNLOAD_HEARTBEAT_SECONDS", 0):
@@ -867,7 +867,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertFalse([m for m in messages if "secret" in m or "example.com" in m])
 
     def test_save_video_reports_progress_without_a_declared_size(self):
-        """没有 Content-Length 时仍要报告已下载大小，只是给不出百分比。"""
+        """When Content-Length is missing, downloaded size must still be reported, without a percentage."""
         megabyte = b"x" * (1024 * 1024)
         with patch.object(material, "_DOWNLOAD_HEARTBEAT_SECONDS", 0):
             messages = self._save_video_with_chunks([megabyte, megabyte])
@@ -877,7 +877,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertRegex(heartbeats[1], r": 2\.0 MB, \d+\.\d{2} MB/s$")
 
     def test_save_video_stays_quiet_for_fast_downloads(self):
-        """在心跳间隔内完成的下载不应产生额外日志，避免小文件刷屏。"""
+        """Downloads completing within the heartbeat interval should not generate extra logs, avoiding noise from small files."""
         messages = self._save_video_with_chunks([b"small", b"video"])
 
         self.assertEqual([m for m in messages if m.startswith("downloading video")], [])
@@ -1033,9 +1033,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_download_videos_accepts_plain_string_concat_mode(self):
         """
-        download_videos 可能被服务层或测试直接传入字符串模式，而不是
-        VideoConcatMode 枚举。这里用空搜索词避免真实网络请求，只验证
-        字符串 "random" 不会再因为访问 `.value` 抛 AttributeError。
+        download_videos might be passed string modes directly by service layers or tests instead of
+        the VideoConcatMode enum. Empty search terms avoid real network requests while verifying
+        that the string "random" no longer raises AttributeError on `.value`.
         """
         result = material.download_videos(
             task_id="string-concat-mode",
@@ -1047,8 +1047,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_material_source_record_uses_public_whitelist(self):
         """
-        任务清单只应包含可追溯的公开字段，不能写入签名参数、下载地址、
-        调用方传入的额外字段或本机绝对路径。
+        Task manifests should only include traceable public fields, and must not write signed parameters,
+        download URLs, extra caller-provided fields, or local absolute paths.
         """
         item = material.MaterialInfo(
             provider="pixabay",
@@ -1100,9 +1100,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_download_videos_can_round_robin_terms_in_script_order(self):
         """
-        开启按文案顺序匹配素材后，不能让第一个关键词的多个候选先把
-        音频时长填满。这里模拟两个关键词各有多个候选，验证下载顺序是
-        term1-第1个、term2-第1个、term1-第2个，贴近脚本叙事顺序。
+        When matching materials in script order is enabled, multiple candidates from the first keyword
+        must not exhaust narration duration first. Simulate multiple candidates per keyword and verify
+        download order alternates: term1-1st, term2-1st, term1-2nd, following script narrative order.
         """
         search_results = {
             "opening city": [
@@ -1205,8 +1205,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_script_order_uses_next_candidate_after_failed_download(self):
         """
-        回归：脚本顺序模式下首个候选下载失败时，必须尝试同一关键词的
-        下一个候选，而不是返回空结果。下载异常不能中断整个流程。
+        Regression: When the first candidate fails to download in script order mode,
+        the next candidate for the same keyword must be tried rather than returning an empty result.
+        Download exceptions must not abort the entire pipeline.
         """
         search_results = {
             "city": [
@@ -1271,10 +1272,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_script_order_does_not_skip_unattempted_candidates(self):
         """
-        回归：脚本顺序模式下，本轮未被选中的候选不能推进下标。
-        三个关键词各 1 个候选、首轮只选中前两个且都下载失败时，
-        第三个候选必须在下一轮被尝试，而不是被整轮统一的下标跳过
-        导致直接返回空结果。
+        Regression: In script order mode, candidates not selected in the current round must not have their indices advanced.
+        With three keywords having 1 candidate each, when only the first two are selected in the first round and both fail to download,
+        the third candidate must be attempted in the next round rather than being skipped by a round-wide index causing an empty result.
         """
         search_results = {
             "t1": [
@@ -1341,9 +1341,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 match_script_order=True,
             )
 
-        # 首轮选中 x、y（累计 10s 超过 6s 配音），z 未被尝试；x、y 都下载失败后，
-        # 修复前 z 会被整轮统一的下标直接跳过、函数返回空结果；
-        # 修复后 z 必须在次轮被尝试并下载成功。
+        # Round 1 selected x and y (accumulating 10s over 6s narration), while z was unattempted; after both x and y fail to download,
+        # prior to the fix, z would be skipped by the round-wide index and return an empty result;
+        # after the fix, z must be attempted in the next round and succeed.
         self.assertCountEqual(
             attempted_urls,
             [
@@ -1356,8 +1356,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_default_path_single_material_failure_does_not_abort(self):
         """
-        回归：默认路径下，即使并发配置为 4，单候选批次走串行下载时
-        下载异常也必须被捕获，不能中断整个生成流程。
+        Regression: On the default path, even if concurrency is configured to 4, when a single-candidate batch runs serial download,
+        download exceptions must be caught and not abort the entire generation process.
         """
         item = material.MaterialInfo(
             provider="pexels",
@@ -1400,8 +1400,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_default_path_serial_fallback_keeps_selection_order(self):
         """
-        并发配置为 1 时，默认路径保持严格串行：按候选顺序下载，
-        时长覆盖即停，下载失败跳过并继续下一个候选。
+        When concurrency is configured to 1, the default path remains strictly serial: download in candidate order,
+        stop once duration is covered, and skip failed downloads to continue with the next candidate.
         """
         items = [
             material.MaterialInfo(
@@ -1448,7 +1448,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 max_clip_duration=6,
             )
 
-        # 串行语义：a 成功（6s）、b 失败跳过、c 成功（累计 12s 覆盖 10s 即停）。
+        # Serial semantics: a succeeds (6s), b fails and is skipped, c succeeds (cumulative 12s covers 10s and stops).
         self.assertEqual(
             attempted_urls,
             [
@@ -1461,8 +1461,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_default_path_parallel_download_matches_serial_selection(self):
         """
-        默认路径并行下载保持与串行一致的选择语义：顺序累加、覆盖即停；
-        失败的候选用后续候选补足，最终下载集合与串行一致。
+        Default path parallel download maintains identical selection semantics with serial: sequential accumulation, stop when covered;
+        failed candidates are replenished by subsequent candidates, matching the final serial download set.
         """
         items = [
             material.MaterialInfo(
@@ -1507,14 +1507,14 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 max_clip_duration=6,
             )
 
-        # 首轮 [a, b]：a 成功（6s）、b 失败；次轮 [c] 成功（累计 12s 覆盖即停）。
-        # 与串行逻辑的下载集合一致：{a, c}，d 不会被多下载。
+        # Round 1 [a, b]: a succeeds (6s), b fails; Round 2 [c] succeeds (cumulative 12s covers and stops).
+        # Matches serial logic download set: {a, c}, d is not downloaded extra.
         self.assertEqual(result, ["/tmp/a.mp4", "/tmp/c.mp4"])
 
     def _download_with_progress(self, *, concurrency, progress_callback, **kwargs):
         """
-        四个 6 秒候选、配音 10 秒：首轮 [a, b] 中 b 失败，次轮用 c 补足。
-        返回下载结果，供串行、并行和按文案顺序三条路径共用。
+        Four 6-second candidates, 10-second narration: in round 1 [a, b], b fails, and round 2 replenishes with c.
+        Returns download results, shared across serial, parallel, and script order paths.
         """
         items = [
             material.MaterialInfo(
@@ -1563,9 +1563,9 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_download_videos_reports_covered_duration_as_progress(self):
         """
-        下载阶段此前只在开始前把进度设为 40%，全部素材下完才跳到 50%，慢速
-        网络下进度条会长时间停在 40%。每下完一个素材都要报告一次已覆盖配音
-        时长的比例；失败的候选不计入，覆盖超出需要时封顶为 1.0。
+        The download phase previously only set progress to 40% before starting and jumped to 50% after all materials finished,
+        staying at 40% for a long time on slow networks. After each material finishes downloading, report the covered narration
+        duration fraction; failed candidates do not count, and exceeding needed duration caps at 1.0.
         """
         for concurrency in (1, 4):
             with self.subTest(concurrency=concurrency):
@@ -1579,7 +1579,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 self.assertEqual(fractions, [0.6, 1.0])
 
     def test_script_order_download_reports_progress(self):
-        """按文案顺序匹配素材的路径同样要报告下载进度。"""
+        """The path matching materials in script order must also report download progress."""
         fractions = []
         result = self._download_with_progress(
             concurrency=1,
@@ -1592,7 +1592,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertEqual(fractions, sorted(fractions))
 
     def test_failing_progress_callback_does_not_break_download(self):
-        """进度只是展示信息，回调出错（例如状态后端不可用）不能让下载失败。"""
+        """Progress is display information only; callback errors (e.g. unavailable state backend) must not fail the download."""
 
         def broken_callback(_fraction):
             raise RuntimeError("state backend unavailable")
@@ -1614,8 +1614,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_each_finished_material_is_logged_with_its_position(self):
         """
-        一轮下载结束前此前没有任何逐文件日志。每个素材下完都要记录它是本轮
-        第几个，用户才能从日志判断下载在推进，以及还剩多少。
+        Previously there were no per-file logs before a download round ended. After each material finishes, record its position
+        in the round so users can verify progress and remaining work from logs.
         """
         items = [
             material.MaterialInfo(
@@ -1658,9 +1658,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
     def test_parallel_download_logs_belong_to_the_task_log_scope(self):
         """
-        并发数大于 1 时素材在 material-download 线程池里下载。这些线程写出的
-        日志必须归属发起下载的任务线程，否则调高并发后 WebUI 反而看不到下载
-        过程中的任何输出。
+        When concurrency is greater than 1, materials download in the material-download thread pool. Logs written by these
+        threads must belong to the task thread initiating the download; otherwise WebUI sees no output during downloads.
         """
         items = [
             material.MaterialInfo(
@@ -1692,7 +1691,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         )
 
     def test_material_concurrency_is_clamped(self):
-        """素材并发配置钳制在 1~8，非法值回退到串行默认值。"""
+        """Material concurrency configuration is clamped between 1 and 8, with invalid values falling back to serial default."""
         with patch.dict(config.app, {}, clear=True):
             self.assertEqual(material._get_material_concurrency(), 1)
         with patch.dict(config.app, {"material_concurrency": 0}):
@@ -1705,7 +1704,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
             self.assertEqual(material._get_material_concurrency(), 2)
 
     def test_material_source_persistence_failure_does_not_break_download(self):
-        """辅助任务记录失败时，已经下载成功的素材仍应正常返回给成片主流程。"""
+        """When persisting auxiliary task records fails, successfully downloaded materials should still be returned to the main video pipeline."""
         item = material.MaterialInfo(
             provider="pexels",
             url="https://v.example/a1.mp4",
@@ -1744,8 +1743,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
 class TestCoverrProvider(unittest.TestCase):
     """
-    Coverr 视频素材源(spec: 2026-06-09-coverr-video-provider-design.md)。
-    全部用 unittest.mock 替换 requests，确保 CI 不依赖真实网络和真实 API key。
+    Coverr video material provider (spec: 2026-06-09-coverr-video-provider-design.md).
+    All requests are mocked using unittest.mock to ensure CI does not depend on real network or real API keys.
     """
 
     def setUp(self):
@@ -1762,11 +1761,11 @@ class TestCoverrProvider(unittest.TestCase):
 
     def test_search_coverr_uses_mp4_download_url(self):
         """
-        search_videos_coverr 应把每个 hit 转成 MaterialInfo，并把 urls.mp4_download
-        直接作为 MaterialInfo.url。
-        按 Coverr 官方文档 (api.coverr.co/docs/videos/#download-a-video),
-        GET mp4_download 本身就被 Coverr 计入下载统计,无需额外 PATCH ping。
-        同时验证 Authorization header 使用 Bearer scheme。
+        search_videos_coverr should convert each hit to MaterialInfo and use urls.mp4_download
+        directly as MaterialInfo.url.
+        According to official Coverr docs (api.coverr.co/docs/videos/#download-a-video),
+        GET mp4_download is automatically counted by Coverr towards download statistics without extra PATCH ping.
+        Also verify that Authorization header uses the Bearer scheme.
         """
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
@@ -1814,7 +1813,7 @@ class TestCoverrProvider(unittest.TestCase):
         item = results[0]
         self.assertEqual(item.provider, "coverr")
         self.assertEqual(item.duration, 11)
-        # url 字段就是 mp4_download URL,不再做 coverr://id|url 编码
+        # The url field is the mp4_download URL; no more coverr://id|url encoding
         self.assertEqual(
             item.url, "https://storage.coverr.co/videos/abc/download?token=xyz"
         )
@@ -1834,7 +1833,7 @@ class TestCoverrProvider(unittest.TestCase):
         self.assertTrue(get.call_args.kwargs["verify"])
 
     def test_search_coverr_uses_tls_verification_by_default(self):
-        """与 pexels/pixabay 一致:未显式配置时 TLS 校验默认开启。"""
+        """Consistent with pexels/pixabay: TLS verification is enabled by default when not explicitly configured."""
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
         config.proxy.clear()
@@ -1849,7 +1848,7 @@ class TestCoverrProvider(unittest.TestCase):
         self.assertTrue(get.call_args.kwargs["verify"])
 
     def test_search_coverr_allows_explicit_tls_disable_for_proxy(self):
-        """企业自签证书代理场景必须能显式关闭 TLS 校验。"""
+        """Corporate self-signed certificate proxy scenarios must be able to explicitly disable TLS verification."""
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app["tls_verify"] = False
         config.proxy.clear()
@@ -1865,8 +1864,8 @@ class TestCoverrProvider(unittest.TestCase):
 
     def test_search_coverr_filters_by_min_duration_and_accepts_string(self):
         """
-        Coverr duration 字段在不同响应里可能是 number 或 string,
-        两种格式都要接受;低于 minimum_duration 的应被过滤。
+        The Coverr duration field can be a number or string across different responses;
+        both formats must be accepted, and values below minimum_duration should be filtered.
         """
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
@@ -1901,7 +1900,7 @@ class TestCoverrProvider(unittest.TestCase):
         self.assertEqual(results[0].url, "https://example.com/b.mp4")
 
     def test_search_coverr_skips_invalid_items(self):
-        """缺 id 或缺 urls.mp4_download 的条目应被跳过,不应抛异常。"""
+        """Entries missing id or urls.mp4_download should be skipped without raising exceptions."""
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
         config.proxy.clear()
@@ -1939,8 +1938,8 @@ class TestCoverrProvider(unittest.TestCase):
 
     def test_search_coverr_returns_empty_on_failure(self):
         """
-        响应结构异常 / 网络异常时,函数必须返回 [] 而不是抛异常,
-        与 pexels/pixabay 行为保持一致。
+        On response structure anomaly or network error, the function must return [] rather than raising exceptions,
+        consistent with pexels/pixabay behavior.
         """
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
@@ -1970,11 +1969,11 @@ class TestCoverrProvider(unittest.TestCase):
 
     def test_download_videos_passes_mp4_download_url_to_save_video(self):
         """
-        在 source="coverr" 时:
-          1. dispatch 到 search_videos_coverr
-          2. coverr item 走通用下载路径:save_video 收到的就是 mp4_download URL
-             (不再有 coverr://id|url 编码,也不再调用 PATCH ping)
-          3. 返回保存路径
+        When source="coverr":
+          1. dispatch to search_videos_coverr
+          2. coverr item follows common download path: save_video receives mp4_download URL
+             (no coverr://id|url encoding, no PATCH ping)
+          3. return saved path
         """
         config.app["coverr_api_keys"] = ["coverr-key"]
         config.app.pop("tls_verify", None)
@@ -2009,20 +2008,20 @@ class TestCoverrProvider(unittest.TestCase):
         # 1. dispatch
         self.assertEqual(search.call_count, 1)
 
-        # 2. save_video 收到的就是 mp4_download URL,原样传入
+        # 2. save_video receives the mp4_download URL passed as-is
         save_url = save.call_args.kwargs.get("video_url") or save.call_args.args[0]
         self.assertEqual(
             save_url, "https://storage.coverr.co/videos/abc/download?token=xyz"
         )
 
-        # 3. 返回值正确
+        # 3. Correct return value
         self.assertEqual(result, ["/tmp/coverr-saved.mp4"])
 
 
 class TestWaveSpeedProvider(unittest.TestCase):
     """
-    WaveSpeed AI 文生视频素材源。与其它素材源测试一致,全部用 unittest.mock
-    替换 requests 和 time.sleep,CI 不依赖真实网络、真实 API key 和真实计费。
+    WaveSpeed AI text-to-video material provider. Consistent with other material provider tests,
+    all requests and time.sleep are mocked using unittest.mock; CI does not depend on real network, real API keys, or real billing.
     """
 
     def setUp(self):
@@ -2044,8 +2043,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_generate_wavespeed_submits_and_polls_to_completion(self):
         """
-        提交请求必须携带 Bearer 鉴权、模型 ID 路径和 prompt/aspect_ratio/duration
-        三个生成参数;轮询到 completed 后把 outputs 转成 MaterialInfo。
+        Submission requests must carry Bearer auth, model ID path, and the three generation parameters:
+        prompt, aspect_ratio, duration; convert outputs to MaterialInfo once polled to completed.
         """
         submit_response = self._json_response(
             {"code": 200, "message": "success", "data": {"id": "pred-123"}}
@@ -2084,12 +2083,12 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(len(results), 1)
         item = results[0]
         self.assertEqual(item.provider, "wavespeed")
-        # 签名 URL 必须原样保留,查询参数不能被剥离,否则下载会 403
+        # Signed URLs must be kept intact with query parameters preserved, or download will 403
         self.assertEqual(item.url, "https://cdn.example.com/out.mp4?sig=abc")
         self.assertEqual(item.duration, 5)
         self.assertEqual(item.source_info["asset_id"], "pred-123")
         self.assertEqual(item.source_info["search_term"], "sunrise over mountains")
-        # 生成产物地址是临时签名 URL,不允许写入来源记录
+        # Generated artifact address is a temporary signed URL and must not be written to source records
         self.assertNotIn("source_page", item.source_info)
 
         self.assertIn(
@@ -2110,11 +2109,11 @@ class TestWaveSpeedProvider(unittest.TestCase):
         )
         self.assertTrue(post.call_args.kwargs["verify"])
         self.assertIn("/api/v3/predictions/pred-123/result", get.call_args.args[0])
-        # processing 状态下必须等待轮询间隔,不能空转打满远端接口
+        # In processing state, must wait for poll interval without spinning and overloading remote API
         self.assertEqual(sleep.call_count, 1)
 
     def test_generate_wavespeed_uses_configured_model_id(self):
-        """用户可以在配置中切换任意 WaveSpeed 文生视频模型。"""
+        """Users can switch to any WaveSpeed text-to-video model in configuration."""
         config.app["wavespeed_text_to_video_model"] = "wavespeed-ai/custom-t2v"
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-9"}})
         poll_response = self._json_response(
@@ -2145,7 +2144,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["json"]["aspect_ratio"], "16:9")
 
     def test_generate_wavespeed_returns_empty_on_failed_prediction(self):
-        """failed/cancelled/timeout 都按空结果返回,让上层跳过该关键词继续。"""
+        """failed/cancelled/timeout all return empty results, allowing caller to skip this keyword and continue."""
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-fail"}})
         poll_response = self._json_response(
             {
@@ -2167,7 +2166,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_generate_wavespeed_returns_empty_on_rejected_submission(self):
-        """非 200 envelope(如 key 无效)不能进入轮询,直接返回空结果。"""
+        """Non-200 envelopes (e.g. invalid key) must not enter polling and directly return empty results."""
         submit_response = self._json_response({"code": 401, "message": "invalid api key"})
 
         with (
@@ -2181,8 +2180,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_generate_wavespeed_returns_empty_on_plain_text_client_error(self):
         """
-        4xx 是明确拒绝,即使响应体是网关返回的纯文本也不能误报为"可能已计费"。
-        2xx 响应体无法解析时仍按状态不明处理。
+        4xx is an explicit rejection; even if the response body is plain text from a gateway, it must not be falsely reported as 'possibly billed'.
+        Unparseable 2xx response bodies are still treated as state unknown.
         """
 
         def unreadable():
@@ -2209,8 +2208,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_generate_wavespeed_never_retries_submission_on_network_error(self):
         """
-        提交没有收到响应不代表任务没有创建,重发 POST 会重复生成、重复扣费。
-        因此提交绝不自动重试,并按"状态不明"上抛,让上层停止继续下单。
+        Not receiving a response for submission does not mean the task wasn't created; resending POST causes duplicate generation and charges.
+        Therefore submission never automatically retries, raising as 'state unknown' so callers stop ordering.
         """
         with patch(
             "app.services.material.requests.post",
@@ -2222,7 +2221,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
 
     def test_generate_wavespeed_treats_server_error_submission_as_unconfirmed(self):
-        """5xx 可能发生在任务创建之后,状态不明,不能当作"没扣费"继续。"""
+        """5xx might occur after task creation with unknown state; cannot proceed assuming no charges were incurred."""
         submit_response = SimpleNamespace(
             status_code=502, json=lambda: {"code": 502, "message": "bad gateway"}
         )
@@ -2233,8 +2232,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_generate_wavespeed_retries_transient_poll_failures_on_same_task(self):
         """
-        轮询遇到 429/5xx 或网络异常时,必须带着原来的 prediction id 退避重试,
-        绝不能重新提交一次付费生成任务。
+        When polling encounters 429/5xx or network errors, it must backoff and retry using the original prediction id,
+        never resubmitting a paid generation task.
         """
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-r1"}})
         rate_limited = SimpleNamespace(status_code=429, json=lambda: {"code": 429})
@@ -2266,18 +2265,18 @@ class TestWaveSpeedProvider(unittest.TestCase):
             results = material.generate_videos_wavespeed("sunrise", minimum_duration=5)
 
         self.assertEqual(len(results), 1)
-        # 只提交一次;三次 GET 全部指向同一个 prediction id
+        # Submitted only once; all three GETs point to the same prediction id
         self.assertEqual(post.call_count, 1)
         self.assertEqual(get.call_count, 3)
         for call in get.call_args_list:
             self.assertIn("/api/v3/predictions/pred-r1/result", call.args[0])
-        # 线性退避:第 n 次重试等待 base * n
+        # Linear backoff: retry n waits base * n
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.0, 2.0])
 
     def test_generate_wavespeed_raises_unconfirmed_after_poll_retries_exhausted(self):
         """
-        连续临时失败超过上限后,任务状态仍然不明:任务可能还在远端运行。
-        必须上抛并带上 prediction id,而不是当作失败让流程继续下单。
+        After consecutive transient failures exceed the limit, task state is still unknown: the task might still be running remotely.
+        Must raise with prediction id rather than treating as failure and allowing the workflow to continue ordering.
         """
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-r2"}})
 
@@ -2296,7 +2295,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(get.call_count, material.WAVESPEED_MAX_POLL_RETRIES + 1)
 
     def test_generate_wavespeed_raises_unconfirmed_on_local_wait_timeout(self):
-        """本地等待超时,远端任务仍在运行,状态不明,不能继续提交新任务。"""
+        """Local wait timeout with remote task still running leaves state unknown; cannot continue submitting new tasks."""
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-r3"}})
         processing = self._json_response(
             {"code": 200, "data": {"id": "pred-r3", "status": "processing"}}
@@ -2318,9 +2317,9 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_download_videos_wavespeed_stops_submitting_after_unconfirmed_task(self):
         """
-        回归:某个片段的任务状态不明时,后续关键词绝不能再触发新的付费生成
-        请求——否则第一个任务可能仍在运行/已完成,造成重复生成和额外扣费。
-        已经下载成功的素材不能让整个任务被错误地标记为完成。
+        Regression: When a segment's task state is unknown, subsequent keywords must never trigger new paid generation
+        requests—otherwise the first task may still be running/completed, causing duplicate generation and extra charges.
+        Successfully downloaded materials must not cause the entire task to be falsely marked complete.
         """
         first_item = self._generated_item("term-1", "https://cdn.example.com/1.mp4")
 
@@ -2350,12 +2349,12 @@ class TestWaveSpeedProvider(unittest.TestCase):
                     max_clip_duration=5,
                 )
 
-        # term-2 抛出状态不明后立即停止,term-3 不能再产生生成请求
+        # term-2 stops immediately after raising unconfirmed state; term-3 must not generate requests
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(ctx.exception.prediction_id, "pred-stuck")
 
     def test_download_videos_wavespeed_stops_after_paid_download_failure(self):
-        """下载耗尽重试后不能悄悄为下一个关键词再次付费。"""
+        """After exhausting download retries, must not quietly pay again for the next keyword."""
         item = self._generated_item("term-1", "https://cdn.example.com/1.mp4")
         with (
             patch(
@@ -2382,8 +2381,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_download_videos_wavespeed_retries_original_download_url(self):
         """
-        产物已经付费生成,下载抖动必须优先重试同一个签名地址,而不是重新
-        提交一次付费生成任务。
+        Artifact has already been paid for and generated; download jitter must prioritize retrying the same signed URL
+        rather than resubmitting a paid generation task.
         """
         item = self._generated_item("term-1", "https://cdn.example.com/1.mp4")
 
@@ -2410,7 +2409,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
             )
 
         self.assertEqual(result, ["/tmp/1.mp4"])
-        # 重试打在同一个地址上,且没有触发第二次付费生成
+        # Retries target the same URL without triggering a second paid generation
         self.assertEqual(save.call_count, 2)
         self.assertEqual(generate.call_count, 1)
         for call in save.call_args_list:
@@ -2421,8 +2420,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_download_videos_wavespeed_bypasses_search_cache(self):
         """
-        生成源不参与 24 小时搜索缓存:签名 URL 会过期,复用缓存还会让不同
-        任务反复拿到同一段生成视频。download_videos 必须直接调用生成函数。
+        Generation providers do not participate in 24-hour search cache: signed URLs expire, and reusing cache would cause
+        different tasks to receive the same generated video. download_videos must invoke the generator directly.
         """
         generated_item = material.MaterialInfo()
         generated_item.provider = "wavespeed"
@@ -2461,8 +2460,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_generate_wavespeed_clamps_duration_to_model_minimum(self):
         """
-        WebUI 默认片段时长 3 秒,而默认模型只接受 4-15 秒;直接透传会被 API
-        拒绝。请求必须收敛到模型下限,多出的时长由现有剪辑流程按片段时长裁掉。
+        WebUI default clip duration is 3 seconds, whereas default models only accept 4-15 seconds; direct passthrough is rejected by API.
+        Requests must clamp to model minimum, and excess duration is trimmed by existing editing pipeline.
         """
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-c1"}})
         poll_response = self._json_response(
@@ -2485,11 +2484,11 @@ class TestWaveSpeedProvider(unittest.TestCase):
             results = material.generate_videos_wavespeed("sunrise", minimum_duration=3)
 
         self.assertEqual(post.call_args.kwargs["json"]["duration"], 4)
-        # MaterialInfo 记录实际生成时长,时长核算和剪辑按真实素材长度进行
+        # MaterialInfo records actual generated duration; accounting and editing use real asset length
         self.assertEqual(results[0].duration, 4)
 
     def test_generate_wavespeed_clamps_duration_to_model_maximum(self):
-        """超过模型上限的请求收敛到上限,不能提交必然失败的远端请求。"""
+        """Requests exceeding model maximum clamp to the upper bound, avoiding submitting inevitably failing remote requests."""
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-c2"}})
         poll_response = self._json_response(
             {
@@ -2514,7 +2513,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         self.assertEqual(results[0].duration, 15)
 
     def test_generate_wavespeed_duration_bounds_are_configurable(self):
-        """切换到其它模型时,用户可以在配置中同步调整支持的时长区间。"""
+        """When switching to other models, users can adjust supported duration bounds in configuration."""
         config.app["wavespeed_min_duration"] = 2
         config.app["wavespeed_max_duration"] = 8
         submit_response = self._json_response({"code": 200, "data": {"id": "pred-c3"}})
@@ -2554,9 +2553,9 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_download_videos_wavespeed_generates_on_demand_and_stops(self):
         """
-        生成按条计费,不能先为全部关键词生成再挑选。素材必须逐段按需生成,
-        累计有效时长(按片段时长封顶)超过所需配音时长后,后续关键词不再
-        触发任何生成请求。
+        Generation is billed per item; cannot generate for all keywords first and select later. Materials must be generated
+        on-demand segment by segment; once cumulative valid duration (capped by clip duration) exceeds needed narration,
+        subsequent keywords trigger no further generation requests.
         """
         generated = {
             "term-1": [self._generated_item("term-1", "https://cdn.example.com/1.mp4")],
@@ -2585,7 +2584,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
                 max_clip_duration=5,
             )
 
-        # 5s + 5s > 8s,第三个关键词不能再产生付费生成请求
+        # 5s + 5s > 8s, third keyword must not trigger paid generation requests
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(
             [call.kwargs["search_term"] for call in generate.call_args_list],
@@ -2595,8 +2594,8 @@ class TestWaveSpeedProvider(unittest.TestCase):
 
     def test_download_videos_wavespeed_stops_when_duration_exactly_covered(self):
         """
-        边界回归:配音 10 秒、每段 5 秒时,累计恰好等于所需时长即已够用,
-        第 3 个关键词不能再触发付费生成请求(停止判断必须是 >= 而不是 >)。
+        Boundary regression: with 10s narration and 5s per clip, exactly reaching required duration is sufficient;
+        the 3rd keyword must not trigger paid generation (stop condition must be >= rather than >).
         """
         generated = {
             "term-1": [self._generated_item("term-1", "https://cdn.example.com/1.mp4")],
@@ -2625,7 +2624,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
                 max_clip_duration=5,
             )
 
-        # 5s + 5s == 10s,恰好覆盖,第 3 段绝不能生成
+        # 5s + 5s == 10s, exactly covered, segment 3 must never be generated
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(result, ["/tmp/1.mp4", "/tmp/2.mp4"])
 
@@ -2674,7 +2673,7 @@ class TestWaveSpeedProvider(unittest.TestCase):
         generate.assert_not_called()
 
     def test_download_videos_wavespeed_skips_failed_segment_and_continues(self):
-        """单个片段生成失败(空结果)时跳过该关键词,继续为后续片段生成。"""
+        """When a single segment generation fails (empty result), skip that keyword and continue generating for subsequent segments."""
         generated = {
             "term-1": [],
             "term-2": [self._generated_item("term-2", "https://cdn.example.com/2.mp4")],
