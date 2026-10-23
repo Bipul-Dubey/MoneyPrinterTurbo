@@ -1,4 +1,4 @@
-"""用真实 Streamlit 控件验证图片效果选择、恢复与语言切换。"""
+"""Validate image motion effect selection, restoration, and language switching using real Streamlit widgets."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -47,7 +47,7 @@ def test_motion_widget_persists_and_restores_old_and_new_tasks(tmp_path):
         assert not app.exception
         assert _select(app, "image_motion_select").value == "static"
 
-        # 模拟任务恢复：新增字段必须恢复，旧任务缺失字段必须回到原来的放大效果。
+        # Simulate task restoration: newly added fields must restore; legacy tasks lacking the field must fall back to the original zoom effect.
         params = VideoParams(video_subject="restore", video_source="local", image_motion="static").model_dump(mode="json")
         for expected in ("static", "zoom"):
             if expected == "zoom":

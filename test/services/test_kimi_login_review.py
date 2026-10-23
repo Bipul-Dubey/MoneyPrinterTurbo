@@ -1,4 +1,4 @@
-"""审查复现：旧的设备授权和刷新结果不得撤销另一个页面的断开操作。"""
+"""Review reproduction: stale device authorizations and refresh results must not revoke a disconnect performed in another page."""
 
 import threading
 import time
@@ -35,7 +35,7 @@ def _click_link(app, key):
 
 @pytest.mark.parametrize("replace", [False, True])
 def test_refresh_commit_respects_disconnect_or_new_login(isolated_credentials, replace):
-    """暂停真实写回入口，让另一线程断开／登录，再恢复旧刷新。"""
+    """Pause the real write-back entry point, let another thread disconnect/log in, then resume the old refresh."""
     ready, release = threading.Event(), threading.Event()
     original_store = oauth.store_token_bundle
     errors = []
@@ -91,7 +91,7 @@ def test_refresh_commit_respects_disconnect_or_new_login(isolated_credentials, r
 def test_device_authorization_does_not_restore_or_replace_newer_login(
     isolated_credentials, replace
 ):
-    """真实 Streamlit 登录面板：轮询响应返回前另一个页面断开／重新登录。"""
+    """Real Streamlit login panel: another page disconnects/re-logs in before the polling response returns."""
     from webui import kimi_login
 
     new_payload = {
@@ -141,7 +141,7 @@ def test_device_authorization_does_not_restore_or_replace_newer_login(
 
 
 def test_idle_authorization_link_renews_before_expiry():
-    """控制时钟验证未点击链接会更新，但不会提前轮询 token。"""
+    """Control the clock to verify that an unclicked link renews without prematurely polling tokens."""
     from webui import kimi_login
 
     now = time.time()
@@ -179,7 +179,7 @@ def test_idle_authorization_link_renews_before_expiry():
 
 
 def test_credentials_remain_nonblocking_with_video_config_lock(isolated_credentials):
-    """另一线程持有视频配置锁，登录／断开仍能完成并读到排队更新。"""
+    """When another thread holds the video configuration lock, login/disconnect can still complete and read queued updates."""
     held, release = threading.Event(), threading.Event()
 
     def hold_video_lock():

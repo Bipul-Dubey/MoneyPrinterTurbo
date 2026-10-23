@@ -315,8 +315,8 @@ def apply_environment_config(config_path: Path) -> None:
 def _provider_is_ready(text: str, provider: str) -> bool:
     """Return whether a provider has enough configuration to generate."""
     if provider == "kimi_code":
-        # 不需要 API Key，但需要 WebUI「使用 Kimi 登录」后写入的 OAuth 凭证；
-        # 没有凭证时不能当作就绪，否则生成会在运行时才报未授权。
+        # No API Key needed, but requires OAuth credentials written by WebUI "Login with Kimi";
+        # without credentials it cannot be marked ready, or generation fails at runtime with unauthorized.
         return any(
             _has_configured_value(_plain_config_value(text, field))
             for field in ("kimi_code_refresh_token", "kimi_code_access_token")
@@ -406,7 +406,7 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
     ):
         missing.append(f"{provider}_api_key")
     if needs_llm and provider == "kimi_code" and not _provider_is_ready(text, provider):
-        # 无 Key 可填，缺失的是 WebUI 登录动作而不是配置字段。
+        # No key to enter; missing action is WebUI login rather than config field.
         missing.append("kimi_code_sign_in")
     if needs_llm and provider == CUSTOM_OPENAI_PROVIDER:
         for suffix in ("base_url", "model_name"):
@@ -423,8 +423,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
             "directory of video files"
         )
     if source == "volcengine_seedance":
-        # 与运行时 Provider 保持完全一致的凭据优先级，避免 Skill 预检通过后
-        # 主程序却读取了另一把 Key。ARK_API_KEY 语义过于宽泛，明确不再兼容。
+        # Strictly match runtime Provider credential precedence to avoid Skill preflight using
+        # one key while main app reads another. ARK_API_KEY is too broad and deprecated.
         value = (
             _plain_config_value(text, "volcengine_seedance_api_key").strip()
             or os.environ.get("VOLCENGINE_ARK_API_KEY", "").strip()
@@ -435,8 +435,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-seedance-charge"):
             missing.append("confirm_seedance_charge")
     elif source == "wavespeed":
-        # WaveSpeed 的运行时凭据只来自 wavespeed_api_keys，没有环境变量回退，
-        # 这里保持同一口径。按次计费的生成源还必须显式确认收费。
+        # WaveSpeed runtime credentials come strictly from wavespeed_api_keys without env fallback;
+        # keep consistent here. Pay-per-use generation sources also require explicit fee confirmation.
         if not _has_configured_value(
             _plain_config_value(text, "wavespeed_api_keys")
         ):
@@ -444,8 +444,7 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-wavespeed-charge"):
             missing.append("confirm_wavespeed_charge")
     elif source == "ofox":
-        # 与运行时 Provider 保持完全一致的凭据优先级：配置键优先，其次是
-        # 语义明确的 OFOX_API_KEY 环境变量。
+        # Match runtime Provider credential precedence: config key first, then unambiguous OFOX_API_KEY env.
         value = (
             _plain_config_value(text, "ofox_api_key").strip()
             or os.environ.get("OFOX_API_KEY", "").strip()
@@ -455,8 +454,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-ofox-charge"):
             missing.append("confirm_ofox_charge")
     elif source == "metaso_minimax":
-        # 秘塔 Key 与 MiniMax 官方 LLM Key 不互通，Skill 必须沿用运行时的
-        # 独立配置优先级，不能因为已经配置 minimax_api_key 就误判为可用。
+        # Metaso Key and MiniMax official LLM Key are not interchangeable; Skill must preserve
+        # runtime independent config precedence, not misjudging availability just because minimax_api_key exists.
         value = (
             _plain_config_value(text, "metaso_minimax_api_key").strip()
             or os.environ.get("METASO_MINIMAX_API_KEY", "").strip()
@@ -475,9 +474,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-muapi-charge"):
             missing.append("confirm_muapi_charge")
     elif source == "openai_image":
-        # 与运行时的 is_openai_image_enabled() 保持一致：文生图素材源只要求端点
-        # 与模型名。完全本地的 ComfyUI/SD 网关允许不配置 API Key，因此这里不
-        # 能把 openai_image_api_keys 当作必填项。
+        # Consistent with runtime is_openai_image_enabled(): text-to-image footage requires endpoint
+        # and model name only. Local ComfyUI/SD gateways permit empty API keys, so openai_image_api_keys is not required.
         for field in ("openai_image_base_url", "openai_image_model"):
             if not _has_configured_value(_plain_config_value(text, field)):
                 missing.append(field)
@@ -676,10 +674,10 @@ def write_result_manifest(root: Path, payload: dict[str, object]) -> Path:
 
 
 def run_checked(command: list[str], *, cwd: Path) -> None:
-    """延长首次安装的缓存锁等待，失败时保留末尾日志和排查提示。"""
+    """Extend cache lock timeout for initial install; retain trailing logs and troubleshooting guidance on failure."""
     log("installing or verifying project dependencies with uv")
-    # 多个安装进程可能共享较大的 wheel 缓存；只给子进程设置默认值，
-    # 保留用户覆盖及其他环境变量，不改变当前进程或视频生成子进程的环境。
+    # Multiple installer processes may share large wheel caches; set default on child process only,
+    # preserving user overrides and environment variables without mutating current or generation process environments.
     sync_env = os.environ.copy()
     sync_env.setdefault("UV_LOCK_TIMEOUT", DEFAULT_UV_LOCK_TIMEOUT)
     result = subprocess.run(

@@ -38,22 +38,23 @@ def _download_response(content, status_code=200):
 
 class TestOpenAIImageProvider(unittest.TestCase):
     """
-    OpenAI 兼容文生图素材源。与其它素材源测试一致,全部用 unittest.mock
-    替换 requests 和 time.sleep,CI 不依赖真实网络、真实 API key 和真实计费。
+    OpenAI-compatible text-to-image material provider. Consistent with other material tests,
+    all use unittest.mock to replace requests and time.sleep so CI does not depend on real
+    networks, real API keys, or real billing.
     """
 
     def setUp(self):
         self.original_app_config = dict(config.app)
         self.original_proxy_config = dict(config.proxy)
-        # 断言需要在生成调用返回后进行,临时目录不能随 with 块提前销毁,
-        # 因此用 mkdtemp + addCleanup 管理生命周期。
+        # Assertions must run after the generation call returns; temporary directory
+        # cannot be prematurely cleaned up with a with-block, so use mkdtemp + addCleanup.
         self.save_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.save_dir, ignore_errors=True)
         config.app["openai_image_base_url"] = "https://img.example.com/v1"
         config.app["openai_image_api_keys"] = ["sk-test-key"]
         config.app["openai_image_model"] = "test-image-model"
-        # 提示词模板和自定义尺寸默认关闭,需要覆盖的用例自行配置,避免开发者
-        # 本地 config.toml 里的设置影响默认行为场景的断言。
+        # Prompt template and custom size default to disabled; test cases that need overrides
+        # configure them individually to prevent settings in local config.toml from affecting default tests.
         config.app.pop("openai_image_prompt_template", None)
         config.app.pop("openai_image_size", None)
         config.app.pop("tls_verify", None)
@@ -79,13 +80,14 @@ class TestOpenAIImageProvider(unittest.TestCase):
         return item
 
     # ------------------------------------------------------------------
-    # 成功路径
+    # Success path
     # ------------------------------------------------------------------
 
     def test_generate_images_openai_with_b64_json_response(self):
         """
-        b64_json 响应必须解码落盘成合法 PNG,并按真实图片尺寸写入 rendition
-        (兼容中转服务返回尺寸与请求不一致的情况),duration 记录目标片段时长。
+        b64_json response must be decoded and saved as a valid PNG, and recorded in rendition
+        with real image dimensions (compatible with relay services returning sizes different from request).
+        duration records target segment duration.
         """
         image_data = _png_bytes(width=736, height=1312)
         response = _image_response(
@@ -106,7 +108,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         item = results[0]
         self.assertEqual(item.provider, "openai_image")
         self.assertEqual(item.duration, 5)
-        # 请求 size 按画幅取 OpenAI 官方兼容尺寸,不直接用视频分辨率
+        # Request size uses OpenAI official compatible size per aspect ratio, not video resolution directly
         self.assertEqual(
             post.call_args.args[0],
             "https://img.example.com/v1/images/generations",
@@ -124,12 +126,12 @@ class TestOpenAIImageProvider(unittest.TestCase):
             post.call_args.kwargs["headers"]["Authorization"],
             "Bearer sk-test-key",
         )
-        # 落盘文件是可解码的 PNG
+        # Saved file is a decodable PNG
         self.assertTrue(item.url.endswith(".png"))
         self.assertTrue(os.path.isfile(item.url))
         with Image.open(item.url) as saved:
             self.assertEqual(saved.size, (736, 1312))
-        # rendition 记录图片真实尺寸,不依赖请求参数
+        # rendition records true image dimensions, independent of request parameters
         self.assertEqual(
             item.source_info["rendition"],
             {"id": None, "width": 736, "height": 1312},
@@ -137,7 +139,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(item.source_info["search_term"], "sunrise over mountains")
 
     def test_generate_images_openai_with_url_response(self):
-        """url 响应必须立即下载临时地址并落盘。"""
+        """url response must immediately download temporary URL and save to disk."""
         response = _image_response(
             {"data": [{"url": "https://cdn.example.com/generated/abc.png?sig=1"}]}
         )
@@ -153,7 +155,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertTrue(os.path.isfile(results[0].url))
-        # 临时 URL 原样下载,签名查询参数不能被剥离
+        # Temporary URL downloaded verbatim; signed query parameters must not be stripped
         self.assertEqual(
             get.call_args.args[0],
             "https://cdn.example.com/generated/abc.png?sig=1",
@@ -161,9 +163,9 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_skips_b64_json_with_invalid_image(self):
         """
-        兼容层返回 200 但 body 不是可解码图片（如伪装成 JSON 的 HTML 错误页）
-        时，必须按素材源约定返回空列表让上层跳过该关键词，而不是让解码
-        异常中断整个任务。
+        When compatibility layer returns 200 but body is not a decodable image (e.g., HTML
+        error page disguised as JSON), it must return an empty list per material provider
+        convention so upper layer skips the keyword, rather than crashing the whole task.
         """
         fake_content = b"<html><body>gateway degraded</body></html>"
         response = _image_response(
@@ -179,7 +181,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(os.listdir(self.save_dir), [])
 
     def test_generate_images_openai_skips_url_download_with_invalid_content(self):
-        """临时 URL 下载到 200 的非图片内容时同样走跳过路径。"""
+        """When temporary URL downloads 200 non-image content, it also follows skip path."""
         response = _image_response(
             {"data": [{"url": "https://cdn.example.com/generated/abc.png?sig=1"}]}
         )
@@ -198,8 +200,9 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_propagates_image_write_failure(self):
         """
-        图片已经成功解码但 PNG 写入失败时必须中断任务。此类故障通常会持续
-        影响后续关键词，若误判为单张内容异常并继续，会产生无法落盘的付费请求。
+        When image decodes successfully but PNG writing fails, the task must halt. Such
+        failures typically persist across subsequent keywords; treating it as a single-image
+        anomaly would produce unsavable paid requests.
         """
         response = _image_response(
             {
@@ -225,11 +228,11 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(os.listdir(self.save_dir), [])
 
     # ------------------------------------------------------------------
-    # 退避重试与 key 轮换
+    # Backoff retry and key rotation
     # ------------------------------------------------------------------
 
     def test_generate_images_openai_retries_429_with_backoff(self):
-        """429 属于临时限流,必须退避重试而不是把任务判死。"""
+        """429 indicates temporary rate limiting; must back off and retry rather than failing the task."""
         image_data = _png_bytes()
         responses = [
             _image_response({"error": {"message": "rate limited"}}, status_code=429),
@@ -249,7 +252,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(post.call_count, 2)
-        # 第一次重试前必须等待线性退避,不能立刻打满远端接口
+        # Must wait linear backoff before first retry; cannot immediately hammer remote endpoint
         self.assertEqual(sleep.call_count, 1)
         self.assertEqual(
             sleep.call_args.args[0],
@@ -258,8 +261,8 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_rotates_key_on_401(self):
         """
-        401 表示当前 key 被拒。配置了多个 key 时,重试必须借助 get_api_key
-        的轮换机制换到下一个 key,而不是反复用同一个被拒的 key。
+        401 indicates current key was rejected. When multiple keys are configured, retry must
+        rotate to the next key using get_api_key rather than retrying the rejected key.
         """
         config.app["openai_image_api_keys"] = ["sk-bad-key", "sk-good-key"]
         image_data = _png_bytes()
@@ -285,13 +288,13 @@ class TestOpenAIImageProvider(unittest.TestCase):
         used_keys = [
             call.kwargs["headers"]["Authorization"] for call in post.call_args_list
         ]
-        # 连续两次请求必须使用不同的 key,且都来自配置列表
+        # Consecutive requests must use different keys, both from configured list
         self.assertNotEqual(used_keys[0], used_keys[1])
         for auth in used_keys:
             self.assertIn(auth.replace("Bearer ", ""), ["sk-bad-key", "sk-good-key"])
 
     def test_generate_images_openai_fails_fast_on_401_with_single_key(self):
-        """只有一个 key 时,401 重试没有意义,必须快速失败返回空结果。"""
+        """With only a single key, retrying on 401 is meaningless; must fail fast and return empty result."""
         response = _image_response(
             {"error": {"message": "unauthorized"}}, status_code=401
         )
@@ -311,8 +314,8 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_returns_empty_after_retries_exhausted(self):
         """
-        全部重试耗尽后按素材源约定返回空列表,交给上层跳过该关键词;且不落盘
-        任何残留文件。
+        After exhausting retries, return empty list per provider convention for upper layer to skip;
+        must not leave leftover files on disk.
         """
         response = _image_response(
             {"error": {"message": "rate limited"}}, status_code=429
@@ -329,11 +332,11 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(results, [])
         self.assertEqual(post.call_count, material.OPENAI_IMAGE_MAX_ATTEMPTS)
         self.assertEqual(sleep.call_count, material.OPENAI_IMAGE_MAX_ATTEMPTS - 1)
-        # 没有生成任何残留文件
+        # No leftover files created
         self.assertEqual(os.listdir(self.save_dir), [])
 
     def test_generate_images_openai_redacts_api_key_in_failure_detail(self):
-        """失败详情不能把 API key 明文写进日志。"""
+        """Failure details must not write API key in plaintext into logs."""
         config.app["openai_image_api_keys"] = ["sk-secret-123"]
         response = _image_response(
             {"error": {"message": "invalid key sk-secret-123 provided"}},
@@ -357,8 +360,8 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_retries_generated_image_download(self):
         """
-        图片已经按张计费,下载抖动必须重试同一个 URL,不能回退到重新生成
-        同一张图造成重复计费。
+        Images are billed per item; download jitter must retry the same URL, not fall back to
+        regenerating the same image causing duplicate billing.
         """
         response = _image_response(
             {"data": [{"url": "https://cdn.example.com/generated/x.png"}]}
@@ -379,7 +382,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
             )
 
         self.assertEqual(len(results), 1)
-        # 下载重试打在同一个地址上,且没有触发第二次付费生成
+        # Download retry hits the same address without triggering a second paid generation
         self.assertEqual(post.call_count, 1)
         self.assertEqual(get.call_count, 2)
         for call in get.call_args_list:
@@ -476,7 +479,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertNotIn("token=private", str(logger.warning.call_args_list))
 
     def test_generate_images_openai_returns_empty_on_rejected_request(self):
-        """业务拒绝(如内容策略)返回空结果,不做退避重试。"""
+        """Business rejection (e.g. content policy) returns empty result without backoff retry."""
         response = _image_response(
             {"error": {"message": "content policy violation"}}, status_code=400
         )
@@ -495,13 +498,13 @@ class TestOpenAIImageProvider(unittest.TestCase):
         sleep.assert_not_called()
 
     # ------------------------------------------------------------------
-    # 配置开关
+    # Configuration switch
     # ------------------------------------------------------------------
 
     def test_is_openai_image_enabled_requires_full_configuration(self):
         """
-        base_url 和 model 缺一不可;API key 允许为空——完全本地的
-        ComfyUI/SD 网关通常不需要鉴权。
+        Both base_url and model are required; API key is allowed to be empty—purely local
+        ComfyUI/SD gateways usually do not require authentication.
         """
         self.assertTrue(material.is_openai_image_enabled())
 
@@ -509,7 +512,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertFalse(material.is_openai_image_enabled())
         config.app["openai_image_base_url"] = "https://img.example.com/v1"
 
-        # 本地免认证网关:没有 key 也算已启用
+        # Local unauthenticated gateway: considered enabled even without key
         config.app["openai_image_api_keys"] = []
         self.assertTrue(material.is_openai_image_enabled())
         config.app["openai_image_api_keys"] = ["sk-test-key"]
@@ -519,8 +522,8 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_sends_no_authorization_without_key(self):
         """
-        未配置 API key 时必须照常生成,且请求不带 Authorization 头,
-        供免认证的本地 ComfyUI/SD 网关使用。
+        When API key is not configured, generation proceeds normally without Authorization header,
+        suitable for unauthenticated local ComfyUI/SD gateways.
         """
         config.app["openai_image_api_keys"] = []
         response = _image_response(
@@ -539,8 +542,8 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_retries_connect_timeout(self):
         """
-        连接阶段超时说明请求没有送达服务端,不可能已创建计费任务,
-        允许退避重试。
+        Connection timeout indicates request did not reach the server; no billing task could
+        have been created, so backoff retry is allowed.
         """
         image_data = _png_bytes()
         responses = [
@@ -563,9 +566,9 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_does_not_retry_unconfirmed_errors(self):
         """
-        读超时/连接中断属于"未确认"状态:服务端可能已经生成并扣费,只是
-        响应没有返回。自动重新提交会造成重复生成和重复计费,必须直接
-        失败并终止任务，不能继续向后续关键词提交付费请求。
+        Read timeout/connection drop is an "unconfirmed" state: server may have generated and billed,
+        but response was lost. Automatic resubmission causes duplicate generation and billing; must
+        fail and abort task immediately without submitting paid requests for subsequent keywords.
         """
         for error in (
             requests.exceptions.ReadTimeout("read timed out"),
@@ -623,9 +626,9 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_generate_images_openai_size_defaults_and_override(self):
         """
-        默认按画幅取 OpenAI 官方兼容尺寸(portrait 1024x1536 /
-        landscape 1536x1024);配置 openai_image_size 后完全覆盖,
-        供支持任意分辨率的本地网关使用。
+        Default size uses OpenAI official compatible size per aspect ratio (portrait 1024x1536 /
+        landscape 1536x1024); setting openai_image_size completely overrides it for local
+        gateways supporting arbitrary resolutions.
         """
         response = _image_response(
             {"data": [{"b64_json": base64.b64encode(_png_bytes()).decode("ascii")}]}
@@ -640,7 +643,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
                 video_aspect=material.VideoAspect.landscape,
                 save_dir=self.save_dir,
             )
-        # 横屏默认取 OpenAI 官方兼容尺寸
+        # Landscape defaults to OpenAI official compatible size
         self.assertEqual(default_post.call_args.kwargs["json"]["size"], "1536x1024")
 
         config.app["openai_image_size"] = "1080x1920"
@@ -659,19 +662,19 @@ class TestOpenAIImageProvider(unittest.TestCase):
         )
 
     def test_generate_images_openai_raises_without_base_url(self):
-        """直接调用且未配置 base_url 时,必须抛出带配置指引的错误。"""
+        """When called directly without base_url configured, must raise error with config guidance."""
         config.app["openai_image_base_url"] = ""
         with self.assertRaises(ValueError):
             material.generate_images_openai("term", minimum_duration=5)
 
     # ------------------------------------------------------------------
-    # 提示词模板
+    # Prompt template
     # ------------------------------------------------------------------
 
     def test_generate_images_openai_applies_prompt_template(self):
         """
-        配置了含 {term} 占位符的模板时,请求 prompt 必须是模板替换结果,
-        统一附加风格修饰提升图文匹配度。
+        When template containing {term} placeholder is configured, request prompt must be result
+        of template substitution, uniformly attaching style modifiers to improve text-image matching.
         """
         config.app["openai_image_prompt_template"] = (
             "cinematic photo of {term}, photorealistic, high detail"
@@ -693,7 +696,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         )
 
     def test_generate_images_openai_sends_raw_term_without_template(self):
-        """未配置模板时,prompt 必须是关键词原文,行为与旧版本一致。"""
+        """When no template is configured, prompt must be original search term, preserving legacy behavior."""
         response = _image_response(
             {"data": [{"b64_json": base64.b64encode(_png_bytes()).decode("ascii")}]}
         )
@@ -708,7 +711,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["json"]["prompt"], "raw term")
 
     def test_generate_images_openai_falls_back_when_template_lacks_placeholder(self):
-        """模板不含 {term} 占位符时无法注入关键词,必须回退原文。"""
+        """When template lacks {term} placeholder, cannot inject keyword; must fall back to original text."""
         config.app["openai_image_prompt_template"] = "no placeholder here"
         response = _image_response(
             {"data": [{"b64_json": base64.b64encode(_png_bytes()).decode("ascii")}]}
@@ -724,14 +727,14 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["json"]["prompt"], "fallback term")
 
     # ------------------------------------------------------------------
-    # download_videos 分发与按需生成
+    # download_videos dispatch and on-demand generation
     # ------------------------------------------------------------------
 
     def test_download_videos_openai_image_generates_on_demand_and_stops(self):
         """
-        文生图按张计费,不能先为全部关键词生成再挑选。素材必须逐张按需
-        生成,累计有效时长(按片段时长封顶)达到所需配音时长后,后续关键词
-        不再触发任何付费请求。
+        Text-to-image is billed per image and cannot generate for all keywords upfront. Materials
+        must be generated on demand per image; once cumulative valid duration (capped per segment)
+        reaches required audio duration, subsequent keywords must not trigger paid requests.
         """
         generated = {
             "term-1": [self._generated_item("term-1", "/tmp/img-1.png")],
@@ -763,20 +766,20 @@ class TestOpenAIImageProvider(unittest.TestCase):
                 max_clip_duration=5,
             )
 
-        # 5s + 5s > 8s,第三个关键词不能再产生付费生成请求
+        # 5s + 5s > 8s; third keyword must not trigger paid generation request
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(
             [call.kwargs["search_term"] for call in generate.call_args_list],
             ["term-1", "term-2"],
         )
-        # 每张图片都渲染成 mp4 片段后才计入时长
+        # Each image is counted towards duration only after rendering into mp4 clip
         self.assertEqual(render.call_count, 2)
         self.assertEqual(result, ["/tmp/img-1.png.mp4", "/tmp/img-2.png.mp4"])
 
     def test_download_videos_openai_image_continues_after_invalid_image(self):
         """
-        首个兼容接口响应无法解码时只跳过对应关键词，随后一张合法图片仍能
-        完成落盘和渲染，验证修复覆盖真实的按需生成调用链而不只是单个函数。
+        When first compatible API response cannot be decoded, skip that keyword; subsequent valid
+        image can still be saved and rendered, verifying fix covers the on-demand call chain.
         """
         invalid_response = _image_response(
             {
@@ -822,7 +825,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(result, ["/tmp/rendered-openai-image.mp4"])
 
     def test_download_videos_openai_image_stops_when_duration_exactly_covered(self):
-        """边界回归:恰好凑够所需时长即已够用,停止判断必须是 >= 而不是 >。"""
+        """Boundary regression: exactly covering required duration is sufficient; stop condition must be >= not >."""
         generated = {
             "term-1": [self._generated_item("term-1", "/tmp/img-1.png")],
             "term-2": [self._generated_item("term-2", "/tmp/img-2.png")],
@@ -850,14 +853,15 @@ class TestOpenAIImageProvider(unittest.TestCase):
                 max_clip_duration=5,
             )
 
-        # 5s + 5s == 10s,恰好覆盖,第 3 段绝不能生成
+        # 5s + 5s == 10s, exact coverage; 3rd segment must not be generated
         self.assertEqual(generate.call_count, 2)
         self.assertEqual(len(result), 2)
 
     def test_download_videos_openai_image_bypasses_search_cache(self):
         """
-        生成结果是一次性图片文件,不参与 24 小时搜索缓存——缓存会让不同
-        任务反复拿到同一张图。download_videos 必须直接走按需生成分支。
+        Generated results are one-off image files and do not participate in 24-hour search cache—
+        caching causes different tasks to repeatedly get the same image. download_videos must
+        directly enter on-demand generation branch.
         """
         with (
             patch(
@@ -884,10 +888,10 @@ class TestOpenAIImageProvider(unittest.TestCase):
 
     def test_download_videos_openai_image_skips_rejected_segment(self):
         """
-        明确拒绝的生成结果为空时跳过该关键词，继续处理下一片段。
+        When explicitly rejected generation result is empty, skip that keyword and continue to next segment.
         """
         generated = {
-            "term-1": [],  # 生成失败
+            "term-1": [],  # Generation failed
             "term-2": [self._generated_item("term-2", "/tmp/img-2.png")],
             "term-3": [self._generated_item("term-3", "/tmp/img-3.png")],
         }
@@ -941,7 +945,7 @@ class TestOpenAIImageProvider(unittest.TestCase):
         self.assertEqual(generate.call_count, 1)
 
     def test_download_videos_openai_image_skips_generation_without_audio(self):
-        """配音时长非正数时直接空手返回,不为不可能凑够的任务按张付费。"""
+        """When audio duration is non-positive, return empty immediately; do not pay per image for unfulfillable tasks."""
         with patch("app.services.material.generate_images_openai") as generate:
             result = material.download_videos(
                 task_id="test-openai-image-no-audio",

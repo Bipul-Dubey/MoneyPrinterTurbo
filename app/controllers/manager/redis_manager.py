@@ -68,9 +68,8 @@ class RedisTaskManager(TaskManager):
     @staticmethod
     def _serialize_task(task: Dict) -> str:
         task_with_serializable_params = task.copy()
-        # task.copy() 只复制最外层字典；如果直接改写嵌套 kwargs，会把调用方
-        # 持有的 VideoParams 同步替换成 dict。后续日志或重试仍可能读取原任务，
-        # 因此这里单独复制 kwargs，确保序列化过程没有意外副作用。
+        # task.copy() only shallow-copies the outer dict. Deep-copy kwargs separately
+        # so converting objects to dicts does not mutate the caller's VideoParams instance.
         task_kwargs = task.get("kwargs", {})
         task_with_serializable_params["kwargs"] = task_kwargs.copy()
 
@@ -81,40 +80,31 @@ class RedisTaskManager(TaskManager):
                 "params"
             ].model_dump(warnings=False)
 
-        # 将函数对象转换为其名称
+        # Convert function object to its name
         task_with_serializable_params["func"] = task["func"].__name__
         return json.dumps(task_with_serializable_params)
 
     def dequeue(self):
-        # 循环而非单次弹出：某个任务在入队时可能满足当时的校验规则，但校验规则与
-        # FUNC_MAP 成员会随部署变化（例如 VideoParams 新增 ge=1 约束、某个入口
-        # 函数被移除），队列里因此可能残留按旧 schema 写入、或已无法解析的条目。
-        # lpop 是破坏性操作，一旦弹出就不能放回原位；这条任务已经从队列中永久
-        # 移除了，不能再假装它还在。与其让异常从这里往上抛（check_queue 持锁调用
-        # 本方法，异常会顺着 task_done → run_task 的 finally 把工作线程带崩；此后
-        # 没有任务在跑，就再也不会有人调用 check_queue，队列里后面的任务会永久
-        # 停在 processing），不如原地丢弃并继续尝试下一条，把"拿到一条可用任务
-        # 或者队列确实空了"这个约定维持住。
+        # Loop rather than popping once: queued tasks may have met validation rules that changed across deployments
+        # (e.g. VideoParams schema additions, removed functions). Old unparseable items would otherwise crash workers
+        # or leave workers idle with valid items remaining. Discard invalid items and continue popping until valid or empty.
         while True:
             task_json = self.redis_client.lpop(self.queue)
-            # 只有 lpop 什么都没弹出来才代表队列空了。空字符串（或空 bytes）同样
-            # 是一条不可用条目，它后面可能还排着可用的任务，所以要走下面的丢弃
-            # 路径，而不是当成"队列结束"直接返回。
+            # Only when lpop returns None is the queue genuinely empty. Empty strings/bytes are invalid items
+            # that must follow the discard path rather than signalling queue end.
             if task_json is None:
                 return None
 
             task_info = None
             try:
                 task_info = json.loads(task_json)
-                # 将函数名称转换回函数对象。名称缺失、或已不在 FUNC_MAP 中时不能
-                # 直接索引，否则 KeyError 会绕过下面针对 params 的丢弃策略。
+                # Map function name back to callable. Name missing or absent from FUNC_MAP cannot be indexed directly;
+                # KeyError must be caught to follow the discard policy.
                 task_info["func"] = FUNC_MAP[task_info["func"]]
                 task_kwargs = task_info["kwargs"]
                 if not isinstance(task_kwargs, dict):
                     raise ValueError("queued task has no keyword argument mapping")
-                # args 整体缺失时沿用 check_queue 的默认值；写成 null 或其它不是
-                # 数组的形态则会让 check_queue 展开 `*args` 时抛 TypeError，那里
-                # 会把条目重新入队并让异常逃出工作线程，必须在这里先拦下。
+                # When args is missing, use default empty list; non-list structures would cause TypeError on *args.
                 if not isinstance(task_info.get("args", []), list):
                     raise ValueError("queued task positional arguments are not a list")
                 # A persisted request can outlive a callable's signature. Fail
@@ -125,11 +115,9 @@ class RedisTaskManager(TaskManager):
                 )
             except (TypeError, ValueError, KeyError) as e:
                 logger.error(f"dropping unusable queued task: {e}")
-                # 与下面的 params 校验失败路径一致：只要能读出可用的 task_id，就把
-                # 这条已经永久离开队列的任务收敛为失败，否则 API/WebUI 会一直显示
-                # 它在 processing。payload 本身没法解析、或 task_id 不是字符串
-                # （例如 JSON 数组）时则没有可回写的记录，只能丢弃 —— 把非字符串
-                # 直接交给 patch_task 会让 redis 抛 DataError，反过来打断丢弃循环。
+                # Consistent with params validation failure: if task_id can be read, mark the popped
+                # task as failed so API/WebUI does not display it as processing forever. If payload cannot
+                # be parsed or task_id is non-string, discard without calling patch_task to prevent DataError.
                 stale_kwargs = (
                     task_info.get("kwargs") if isinstance(task_info, dict) else None
                 )
@@ -165,11 +153,9 @@ class RedisTaskManager(TaskManager):
                         f"request model validation (queued under an older, more "
                         f"permissive schema, or corrupted): {e}"
                     )
-                    # 任务状态记录在入队前就已创建，且默认是 processing；如果只是
-                    # 丢弃这条队列项而不动状态记录，API/WebUI 会一直显示任务在
-                    # 运行，永远不会变成失败。用 patch_task 而不是 update_task，
-                    # 这样如果用户已经删除了这个任务，我们不会又把它建回来。
-                    # task_id 不是字符串时同上：没有可回写的记录，跳过状态更新。
+                    # Task state is created before queuing and defaults to processing.
+                    # Mark invalid items as failed via patch_task rather than update_task so deleted tasks
+                    # are not resurrected. If task_id is invalid, skip update.
                     task_id = task_kwargs.get("task_id")
                     if isinstance(task_id, str) and task_id:
                         sm.state.patch_task(

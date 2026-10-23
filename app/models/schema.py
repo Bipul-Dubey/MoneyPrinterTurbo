@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import config
 
-# 忽略 Pydantic 的特定警告
+# Ignore specific Pydantic warnings
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
@@ -66,11 +66,11 @@ _SUBTITLE_ANIMATIONS = ("none", "pop_spring")
 
 def _get_valid_ui_choice(key: str, allowed_values: tuple[str, ...], default: str) -> str:
     """
-    读取经过校验的 WebUI 枚举配置，兼容旧用户可能残留的无效值。
+    Read validated WebUI enum config, tolerating invalid values left by older installations.
 
-    请求体由 Pydantic 的 Literal 严格校验，拼写错误会返回明确的字段校验错误；
-    配置文件则需要宽容处理，避免用户升级后因为历史手工配置错误导致整个服务
-    无法启动。HTTP 状态码由应用统一的校验异常处理器决定，这里不绑定具体数值。
+    Request bodies are strictly validated by Pydantic Literals with clear validation errors;
+    configuration files are handled permissively so historical manual edits never prevent
+    the service from starting. HTTP status codes are determined by the global validation handler.
     """
     configured_value = config.ui.get(key, default)
     return configured_value if configured_value in allowed_values else default
@@ -87,9 +87,9 @@ class MaterialInfo:
     provider: str = "pexels"
     url: str = ""
     duration: int = 0
-    # 在线素材搜索会附带经过筛选的公开来源信息，供搜索缓存和任务记录复用。
-    # 本地上传素材不需要填写；写入任务文件前仍会按字段白名单重新构造，
-    # 避免外部请求传入的签名 URL、凭据或无关字段进入持久化数据。
+    # Online footage searches carry sanitized public source info for caching and task records.
+    # Local uploads do not require this; before saving to task files, objects are reconstructed
+    # against a field whitelist to prevent signed URLs, credentials, or arbitrary fields from persisting.
     source_info: Optional[dict[str, Any]] = None
 
 
@@ -137,8 +137,8 @@ class VideoParams(BaseModel):
     bgm_type: Optional[str] = "random"
     bgm_file: Optional[str] = ""
     bgm_volume: Optional[float] = Field(default=0.2, allow_inf_nan=False)
-    # 视频配乐供应商共用提示词，WebUI 新任务统一写入该字段。保留下面的
-    # Sonilo 专用字段以兼容旧任务记录和现有 CLI 参数。
+    # Background music providers share the prompt field; new WebUI tasks write here uniformly.
+    # Preserve the Sonilo-specific field below for backward compatibility with older task records and CLI args.
     video_music_prompt: str = Field(default="", max_length=2000)
     sonilo_bgm_prompt: str = Field(default="", max_length=2000)
 
@@ -301,7 +301,7 @@ class TaskResponseData(BaseModel):
 
 
 class TaskStatusData(BaseModel):
-    """任务查询对外保证的稳定字段；历史和扩展字段继续原样透传。"""
+    """Stable fields guaranteed by task queries; legacy and extension fields pass through intact."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -320,7 +320,7 @@ class TaskStatusData(BaseModel):
 
 
 class TaskListData(BaseModel):
-    """分页任务列表结构。"""
+    """Paginated task list structure."""
 
     tasks: List[TaskStatusData]
     total: int
@@ -383,10 +383,10 @@ class TaskResponse(BaseResponse):
 
 class TaskQueryResponse(BaseResponse):
     """
-    任务查询会返回生成状态和可选的跨平台发布状态。
+    Task queries return generation status and optional cross-platform posting status.
 
-    生成失败时包含 `failed_stage` 和 `error`；生成完成后如果启用了自动发布，
-    `cross_post_state` 会依次进入 pending、processing、complete 或 failed。
+    Failures include `failed_stage` and `error`; when automatic publishing is enabled,
+    `cross_post_state` transitions through pending, processing, complete, or failed.
     """
 
     data: TaskStatusData
@@ -423,7 +423,7 @@ class TaskQueryResponse(BaseResponse):
 
 
 class TaskListResponse(BaseResponse):
-    """任务列表使用独立响应模型，避免与单任务查询混用文档结构。"""
+    """Task list uses a dedicated response model, decoupling schema documentation from single task queries."""
 
     data: TaskListData
 

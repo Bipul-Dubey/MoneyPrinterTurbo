@@ -26,8 +26,8 @@ RUN_INTEGRATION_TESTS = os.environ.get("MPT_RUN_INTEGRATION_TESTS", "").lower() 
 
 class TestTaskService(unittest.TestCase):
     def setUp(self):
-        # 发布 Future 注册表是进程级状态。测试间清理可以避免某个模拟 Future
-        # 影响后续恢复测试，同时不会触碰真正线程池中的生产任务。
+        # Cross-post Future registry is process-level state. Cleanup between tests prevents mock
+        # Futures from affecting subsequent recovery tests, without touching production tasks in thread pool.
         with tm._cross_post_registry_lock:
             tm._cross_post_futures.clear()
 
@@ -36,7 +36,7 @@ class TestTaskService(unittest.TestCase):
             tm._cross_post_futures.clear()
 
     def test_is_task_busy_covers_generation_and_cross_posting(self):
-        """删除入口必须同时识别视频生成和跨平台发布的活跃状态。"""
+        """Task deletion entry point must recognize active states for both video generation and cross-posting."""
         busy_tasks = (
             {"state": tm.const.TASK_STATE_PROCESSING},
             {
@@ -64,8 +64,8 @@ class TestTaskService(unittest.TestCase):
 
     def test_generate_script_forwards_advanced_prompt_options(self):
         """
-        任务生成入口和 WebUI/API 共用 VideoParams。这里验证自动生成文案时，
-        高级提示词参数会继续传到 LLM 服务层，避免只在 /scripts 接口生效。
+        Task generation entry point and WebUI/API share VideoParams. Verify that when auto-generating
+        scripts, advanced prompt options are forwarded to the LLM service layer rather than only taking effect in /scripts.
         """
         params = VideoParams(
             video_subject="咖啡",
@@ -91,7 +91,7 @@ class TestTaskService(unittest.TestCase):
         )
 
     def test_generate_final_videos_forwards_clip_speed_and_fit_mode(self):
-        """任务编排层必须把画面速度和适配模式传给视频合成服务。"""
+        """Task orchestration layer must pass clip speed and fit mode to the video synthesis service."""
         params = VideoParams(
             video_subject="test",
             video_count=1,
@@ -121,8 +121,8 @@ class TestTaskService(unittest.TestCase):
 
     def test_stage_progress_reporter_maps_fraction_into_stage_range(self):
         """
-        阶段内 0~1 的完成比例要换算到该阶段占用的进度区间，并保留任务已有的
-        其它字段。越界或无法解析的比例不能把进度推到区间之外。
+        In-stage 0~1 completion fraction must map into the stage's progress interval, while preserving
+        existing task fields. Out-of-bounds or non-numeric ratios must not push progress outside the interval.
         """
         state = MemoryState()
         state.update_task("stage-progress", progress=40, video_subject="咖啡")
@@ -151,7 +151,7 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(task["video_subject"], "咖啡")
 
     def test_stage_progress_reporter_survives_state_backend_failure(self):
-        """进度只是展示信息，状态后端暂时不可用时不能让下载或合成失败。"""
+        """Progress is display information only; temporary state backend unavailability must not fail download or synthesis."""
         with (
             patch.object(
                 tm.sm.state, "update_task", side_effect=RuntimeError("redis down")
@@ -165,8 +165,8 @@ class TestTaskService(unittest.TestCase):
 
     def test_material_download_moves_progress_between_40_and_50(self):
         """
-        素材下载是慢速网络下最耗时的阶段，此前进度一直停在 40%，全部下完才
-        跳到 50%。下载过程中报告的完成比例必须反映到任务进度上。
+        Material downloading is the most time-consuming stage on slow networks; previously progress remained stuck at 40%
+        until all downloads finished before jumping to 50%. Progress reported during downloading must reflect in task progress.
         """
         params = VideoParams(video_subject="test", video_source="pexels")
         state = MemoryState()
@@ -194,8 +194,8 @@ class TestTaskService(unittest.TestCase):
 
     def test_clip_processing_moves_progress_through_the_combine_half(self):
         """
-        片段处理期间进度此前固定在 50%。合成占每条视频进度份额的前一半：
-        单条视频时为 50%~75%，两条视频时第二条从 75% 开始。
+        Progress during clip processing was previously fixed at 50%. Combining occupies the first half of each video's share:
+        50%~75% for a single video, and starting from 75% for the second video when count is 2.
         """
         for video_count, expected in (
             (1, [[62, 75]]),
@@ -239,7 +239,7 @@ class TestTaskService(unittest.TestCase):
                 )
 
     def test_generate_final_videos_uses_generated_sonilo_music(self):
-        """Sonilo 必须针对每条拼接后的视频生成配乐，并传给最终混音。"""
+        """Sonilo must generate background music for each concatenated video and forward it to final mixing."""
         params = VideoParams(
             video_subject="test",
             video_count=1,
@@ -276,7 +276,7 @@ class TestTaskService(unittest.TestCase):
         )
 
     def test_generate_final_videos_uses_generated_elevenlabs_music(self):
-        """ElevenLabs 应复用视频配乐编排，并使用通用风格提示词。"""
+        """ElevenLabs should reuse video music orchestration and accept general music style prompts."""
         params = VideoParams(
             video_subject="test",
             video_count=1,
@@ -313,7 +313,7 @@ class TestTaskService(unittest.TestCase):
         )
 
     def test_generate_final_videos_falls_back_on_elevenlabs_failure(self):
-        """ElevenLabs 暂时失败时必须保留无配乐视频和结构化警告。"""
+        """When ElevenLabs fails temporarily, videos without music must be retained along with structured warnings."""
         params = VideoParams(video_subject="test", bgm_type="elevenlabs")
 
         with (
@@ -345,7 +345,7 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(generate_video.call_args.kwargs["bgm_file_override"], "")
 
     def test_generate_final_videos_falls_back_without_bgm_on_sonilo_failure(self):
-        """第三方配乐失败时应完成视频并返回可见警告，而不是丢弃所有产物。"""
+        """When 3rd-party music generation fails, complete the video and return visible warnings instead of discarding outputs."""
         params = VideoParams(video_subject="test", bgm_type="sonilo")
 
         with (
@@ -372,7 +372,7 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(generate_video.call_args.kwargs["bgm_file_override"], "")
 
     def test_generate_final_videos_skips_sonilo_when_volume_is_zero(self):
-        """0 音量必须完全跳过 Sonilo 生成，并显式禁用残留背景音乐。"""
+        """Zero volume must skip Sonilo generation entirely and explicitly disable stale background music."""
         params = VideoParams(
             video_subject="test",
             bgm_type="sonilo",
@@ -401,7 +401,7 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(generate.call_args.kwargs["bgm_file_override"], "")
 
     def test_generate_final_videos_warns_when_sonilo_mix_fails(self):
-        """Sonilo 生成成功但最终混音失败时，任务必须保留视频并返回警告。"""
+        """When Sonilo generation succeeds but final mixing fails, the task must retain the video and return a warning."""
         params = VideoParams(video_subject="test", bgm_type="sonilo")
 
         with (
@@ -428,7 +428,7 @@ class TestTaskService(unittest.TestCase):
         self.assertTrue(generate.call_args.kwargs["bgm_file_override"].endswith(".m4a"))
 
     def test_run_pipeline_fails_fast_when_ffmpeg_is_not_ready(self):
-        """完整视频流水线必须在 LLM/TTS/素材服务之前先确认 FFmpeg 可用。"""
+        """Full video pipeline must verify FFmpeg availability before calling LLM, TTS, or material services."""
         params = VideoParams(video_subject="test")
         state = MemoryState()
         with (
@@ -448,7 +448,7 @@ class TestTaskService(unittest.TestCase):
         self.assertIn("ffmpeg", result["error"])
 
     def test_run_pipeline_skips_ffmpeg_check_for_script_stage(self):
-        """脚本阶段不涉及音频/视频合成，不应因为缺少 FFmpeg 而被拒绝。"""
+        """Script stage does not involve audio/video synthesis and should not be rejected due to missing FFmpeg."""
         params = VideoParams(video_subject="test")
         state = MemoryState()
         with (

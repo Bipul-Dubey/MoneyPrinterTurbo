@@ -24,8 +24,8 @@ def _widget_by_key(elements, key):
 
 
 def _click_kimi_login_link(app, key="kimi_code_login_button"):
-    # AppTest 尚未提供 LinkButton.click；向真实 widget 发送与浏览器相同的
-    # trigger_value，不把生产 link_button 替换成普通按钮。
+    # AppTest does not yet provide LinkButton.click; send the same trigger_value
+    # to the real widget as the browser does, without replacing production link_button with a normal button.
     link = next(item for item in app.get("link_button") if item.proto.id.endswith(key))
     states = app._tree.get_widget_states()
     states.widgets.add(id=link.proto.id, trigger_value=True)
@@ -40,7 +40,7 @@ def _make_kimi_poll_due(app):
 
 
 def test_fluxionai_settings_defaults_and_connection_button():
-    """真实运行 Streamlit 组件：检查默认值、配置覆盖及连接测试入口，不写用户配置。"""
+    """Real run of Streamlit component: verify defaults, config overrides, and connection test entry point without writing user config."""
     app_config = dict(
         config.app,
         llm_provider="fluxionai",
@@ -91,7 +91,7 @@ def test_fluxionai_settings_defaults_and_connection_button():
 
 
 def test_kimi_platform_selection_keeps_endpoint_configuration_consistent():
-    """Kimi 平台切换必须同步 Base URL，并只允许自定义模式编辑地址。"""
+    """Kimi platform switching must synchronize Base URL and only allow editing the address in custom mode."""
     app_config = dict(
         config.app,
         llm_provider="moonshot",
@@ -147,7 +147,7 @@ def test_kimi_platform_selection_keeps_endpoint_configuration_consistent():
         )
         assert china_base_url.value == "https://api.moonshot.cn/v1"
         assert china_base_url.disabled is True
-        # 中国站是 Registry 的兼容默认值，不应重复写入用户配置。
+        # The China endpoint is the backward-compatible default in Registry; do not redundantly write it to user config.
         assert app_config["moonshot_base_url"] == ""
         china_tips = "\n".join(str(item.value) for item in app.info)
         assert (
@@ -188,7 +188,7 @@ def test_kimi_platform_selection_keeps_endpoint_configuration_consistent():
 
 
 def test_configure_llm_link_opens_settings_on_llm_tab():
-    """视频主题旁的快捷入口应一次点击就打开并定位大模型设置。"""
+    """The quick shortcut next to the video subject should open and focus on LLM settings in a single click."""
     with patch.object(config, "try_save_config", return_value=True):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
         app.session_state["ui_language"] = "en"
@@ -199,13 +199,13 @@ def test_configure_llm_link_opens_settings_on_llm_tab():
         assert [str(item.value) for item in app.exception] == []
         assert app.session_state["settings_dialog_open"] is True
         assert app.session_state["settings_dialog_tabs_en"] == "LLM Settings"
-        # 业务目标只用于一次定向打开。渲染后立即消费，避免普通“设置”入口
-        # 在之后被历史目标强制切回大模型标签页。
+        # Business target is only used for a one-time directed opening. Consume immediately after render to prevent
+        # the normal "Settings" entry point from being forcibly redirected back to the LLM tab by a historical target.
         assert "settings_dialog_target_tab" not in app.session_state
 
 
 def test_material_settings_target_uses_localized_tab_state_and_is_consumed():
-    """素材快捷入口保存稳定业务 ID，渲染时再解析当前语言标签。"""
+    """Material shortcut preserves stable business ID and resolves localized tab label only upon rendering."""
     with patch.object(config, "try_save_config", return_value=True):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
         app.session_state["ui_language"] = "zh"
@@ -219,7 +219,7 @@ def test_material_settings_target_uses_localized_tab_state_and_is_consumed():
 
 
 def test_ai_video_settings_prioritize_sponsors_and_own_shengsuan_key():
-    """视频 Provider 应按约定的赞助商顺序展示，胜算云密钥只在设置中管理。"""
+    """Video providers should be displayed according to agreed sponsor priority; Shengsuan key is managed only in settings."""
     app_config = dict(
         config.app,
         llm_provider="openai",
@@ -278,8 +278,8 @@ def test_ai_video_settings_prioritize_sponsors_and_own_shengsuan_key():
 
 
 def test_kimi_code_device_authorization_network_error_is_recoverable():
-    """设备授权请求超时：页面不抛异常，提示网络错误，登录按钮保留可直接重试。"""
-    # 本地 config 可能存有真实 Kimi 凭证，必须剔除，否则面板直接显示已授权态。
+    """Device authorization request timeout: page raises no exception, displays network error, login button remains for immediate retry."""
+    # Local config might contain real Kimi credentials; they must be excluded, otherwise the panel shows authorized state directly.
     app_config = {
         key: value
         for key, value in dict(config.app, llm_provider="kimi_code").items()
@@ -308,13 +308,13 @@ def test_kimi_code_device_authorization_network_error_is_recoverable():
         assert not app.exception
         error_messages = [str(item.value) for item in app.error]
         assert any("network error" in message.lower() for message in error_messages)
-        # 流程未建立，登录按钮仍在，用户可直接重试。
+        # Flow was not established; login button remains available for the user to retry directly.
         assert "kimi_code_oauth_flow" not in app.session_state
         _widget_by_key(app.button, "kimi_code_login_button")
 
 
 def test_kimi_code_poll_network_error_retries_then_offers_restart():
-    """轮询阶段的网络错误不清除流程：自动重试，连续失败后回到可重新登录状态。"""
+    """Network error during polling does not clear flow: retries automatically and returns to restartable login state after consecutive failures."""
     app_config = {
         key: value
         for key, value in dict(config.app, llm_provider="kimi_code").items()
@@ -356,7 +356,7 @@ def test_kimi_code_poll_network_error_retries_then_offers_restart():
         for _ in range(5):
             _make_kimi_poll_due(app)
 
-        # 每个计时 tick 只请求一次，连续失败后结束流程并显示新的登录链接。
+        # Requests only once per timing tick; ends flow after consecutive failures and displays new login link.
         assert not app.exception
         assert poll_mock.call_count == 5
         store_mock.assert_not_called()
@@ -370,7 +370,7 @@ def test_kimi_code_poll_network_error_retries_then_offers_restart():
 
 
 def test_kimi_code_pending_then_success_completes_flow():
-    """轮询 pending 后继续等待，授权成功后写入凭证并结束流程。"""
+    """Continues waiting while polling pending; writes credentials and completes flow upon successful authorization."""
     app_config = {
         key: value
         for key, value in dict(config.app, llm_provider="kimi_code").items()
@@ -424,7 +424,7 @@ def test_kimi_code_pending_then_success_completes_flow():
 
 
 def test_kimi_login_opens_selected_region_and_waits_until_clicked():
-    """按钮已携带正确站点链接；选择 Provider 不开始轮询或重复申请授权码。"""
+    """Button already carries correct site link; selecting Provider does not initiate polling or re-request auth code."""
     app_config = {
         key: value
         for key, value in config.app.items()
@@ -485,7 +485,7 @@ def test_kimi_login_opens_selected_region_and_waits_until_clicked():
 
 
 def test_kimi_poll_slow_down_and_cancel_do_not_busy_loop():
-    """遵守服务端轮询间隔；取消后不会再用旧授权码请求 token。"""
+    """Respect server polling interval; cancelled requests do not reuse stale authorization code to request token."""
     app_config = {
         key: value
         for key, value in config.app.items()
@@ -527,7 +527,7 @@ def test_kimi_poll_slow_down_and_cancel_do_not_busy_loop():
 
 
 def test_kimi_login_does_not_prepare_links_on_other_settings_tabs():
-    """打开素材设置时不申请无关的授权码。"""
+    """Opening material settings does not request unrelated authorization codes."""
     app_config = {
         key: value
         for key, value in config.app.items()

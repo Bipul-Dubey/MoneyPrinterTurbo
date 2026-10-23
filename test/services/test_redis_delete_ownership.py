@@ -1,4 +1,4 @@
-"""Redis 任务删除必须保留被复用的键，且不改变正常删除与错误传播。"""
+"""Redis task deletion must retain reused keys without altering normal deletion and error propagation."""
 
 import os
 import shutil
@@ -136,7 +136,7 @@ def test_concurrent_replacement_and_delete_always_preserve_foreign_key(native_st
 
             def replace():
                 barrier.wait(timeout=5)
-                # 整个替换在 Redis 事务中执行；无论它先于还是后于删除，外部键都应保留。
+                # The entire replacement runs in a Redis transaction; whether it runs before or after deletion, the external key should be retained.
                 with state._redis.pipeline() as transaction:
                     transaction.delete(key)
                     transaction.set(key, "other-service")
@@ -186,7 +186,7 @@ def test_http_delete_preserves_key_repurposed_after_directory_cleanup(
     def cleanup_then_repurpose(path, *args, **kwargs):
         assert Path(path) == task_dir
         original_rmtree(path, *args, **kwargs)
-        # 在真实路由读完任务并清理目录后、删除 Redis 记录前，确定性插入键复用。
+        # Deterministically insert key reuse after the real route reads the task and cleans up the directory, but before deleting the Redis record.
         retained.append(_replace_task_key(state, key, kind))
 
     with patch.object(video.shutil, "rmtree", side_effect=cleanup_then_repurpose):

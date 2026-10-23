@@ -23,7 +23,7 @@ WEBUI_MAIN = ROOT_DIR / "webui" / "Main.py"
 
 
 def _attribute_name(node):
-    """把 ``module.function`` 形式的 AST 调用还原为稳定字符串。"""
+    """Restore an AST call in ``module.function`` form to a stable string."""
     names = []
     while isinstance(node, ast.Attribute):
         names.append(node.attr)
@@ -34,7 +34,7 @@ def _attribute_name(node):
 
 
 def _log_record(file_path, message="generation finished"):
-    """构造 ``format_log_record`` 需要的最小 loguru 记录。"""
+    """Construct the minimal loguru record required by ``format_log_record``."""
     return {
         "file": SimpleNamespace(name=os.path.basename(file_path), path=file_path),
         "message": message,
@@ -43,10 +43,11 @@ def _log_record(file_path, message="generation finished"):
 
 def test_generation_controls_submit_background_task_instead_of_blocking_page():
     """
-    WebUI 生成按钮不能重新直接调用同步流水线。
+    WebUI generate buttons must not directly invoke synchronous pipeline again.
 
-    这是 Issue #1120 白屏的核心回归保护：只要完整页面脚本再次阻塞在
-    ``tm.start``，用户在生成期间刷新时仍可能收到指向旧渲染树的 delta。
+    This is the core regression guard for Issue #1120 white screen: if the full page
+    script blocks on ``tm.start`` again, a user refreshing during generation could still
+    receive deltas referencing the stale render tree.
     """
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     function = next(
@@ -67,10 +68,10 @@ def test_generation_controls_submit_background_task_instead_of_blocking_page():
 
 def test_webui_runtime_config_updates_do_not_use_blocking_writes():
     """
-    生成期间的普通控件 rerun 不能重新等待长任务持有的配置锁。
+    Normal widget reruns during generation must not block waiting on the config lock held by long tasks.
 
-    所有 WebUI 配置写入都必须经过非阻塞 helper；LLM 连接测试和语音试听可
-    使用 try lock 快速返回，但页面代码不能直接调用阻塞锁或阻塞保存函数。
+    All WebUI config writes must go through non-blocking helpers; LLM connection tests and voice preview
+    can use try lock to return quickly, but page code must not directly invoke blocking locks or blocking save functions.
     """
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     calls = {
@@ -292,7 +293,7 @@ def test_task_summary_tolerates_directory_removed_during_scan():
 def test_terminal_task_renders_subject_named_video_download(
     tmp_path, ui_config, expected_open_count, task_state, has_video
 ):
-    """完成任务应提供成片下载，并按 WebUI 配置决定是否自动打开目录。"""
+    """Finished tasks should provide video download and decide whether to auto-open folder based on WebUI config."""
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     selected_nodes = []
     target_names = {
@@ -416,7 +417,7 @@ def test_terminal_task_renders_subject_named_video_download(
 
 
 def test_submit_generation_returns_while_pipeline_is_still_running():
-    """后台流水线未结束时，提交函数必须已经返回，让 Streamlit 完成本次渲染。"""
+    """Submit function must return while background pipeline is still running so Streamlit can complete current render."""
     task_id = "background-submit-test"
     started = threading.Event()
     release = threading.Event()
@@ -454,7 +455,7 @@ def test_submit_generation_returns_while_pipeline_is_still_running():
 
 
 def test_submit_generation_copies_params_before_starting_worker():
-    """页面后续 rerun 或流水线内部修改参数时，不能反向污染当前表单对象。"""
+    """Subsequent page reruns or pipeline parameter mutations must not retroactively taint current form object."""
     params = VideoParams(video_subject="参数隔离测试")
     with patch.object(webui_task._task_manager, "add_task") as add_task:
         webui_task.submit_generation("copied-params-test", params, capture_logs=False)
@@ -466,7 +467,7 @@ def test_submit_generation_copies_params_before_starting_worker():
 
 
 def test_submit_generation_keeps_voxcpm_reference_audio_out_of_params():
-    """参考音频仅属于内存中的当前请求，不能进入可持久化任务参数。"""
+    """Reference audio belongs only to the in-memory request and must not enter persistable task parameters."""
     params = VideoParams(video_subject="task isolation")
     reference_audio = b"bounded-reference-wav"
     prompt_audio = b"bounded-prompt-wav"
@@ -496,7 +497,7 @@ def test_submit_generation_keeps_voxcpm_reference_audio_out_of_params():
 
 
 def test_scheduling_failure_is_saved_as_terminal_task_state():
-    """队列或线程启动失败时不能让任务管理器永久停留在“生成中”。"""
+    """Failure to start thread or queue must not leave task manager permanently stuck in 'processing' state."""
     task_id = "scheduling-failure-test"
     params = VideoParams(video_subject="调度失败测试")
     with patch.object(
@@ -515,7 +516,7 @@ def test_scheduling_failure_is_saved_as_terminal_task_state():
 
 
 def test_worker_logs_are_available_without_streamlit_session_state():
-    """后台日志写入线程安全缓存，页面只需轮询快照即可恢复实时日志。"""
+    """Background logs write to thread-safe buffer so page can recover live logs simply by polling snapshots."""
     task_id = "captured-log-test"
     with webui_task._task_logs_lock:
         webui_task._task_logs.pop(task_id, None)
@@ -551,10 +552,10 @@ def test_worker_logs_are_available_without_streamlit_session_state():
 
 def test_bound_helper_thread_logs_reach_the_task_log():
     """
-    并行下载、片段编码和 ffmpeg 心跳都在任务启动的辅助线程里写日志。只按工作
-    线程 ID 过滤时这些记录会被丢弃，WebUI 在耗时最长的阶段反而没有任何输出。
-    经 bind_log_scope 绑定的辅助线程必须计入所属任务，未绑定的线程仍然排除，
-    否则同时运行的 API 任务日志会混进来。
+    Parallel downloads, clip encoding, and ffmpeg heartbeats all log in helper threads spawned by the task.
+    Filtering strictly by worker thread ID drops these records, leaving WebUI with zero output during the longest stages.
+    Helper threads bound via bind_log_scope must be included in the task logs, while unbound threads remain excluded
+    to prevent logs from concurrently running API tasks from leaking in.
     """
     task_id = "helper-thread-log-test"
     with webui_task._task_logs_lock:
@@ -596,9 +597,9 @@ def test_bound_helper_thread_logs_reach_the_task_log():
 
 def test_bind_log_scope_follows_nested_helpers_and_is_released():
     """
-    辅助线程再启动的线程（例如并行片段里的心跳）也要归属最初的任务线程。
-    线程结束后必须解除绑定：线程 ID 会被系统复用，残留的映射会把之后无关
-    线程的日志错误地算进旧任务。
+    Threads spawned by helper threads (e.g. heartbeat within parallel clips) must also belong to the root task thread.
+    The binding must be released after thread termination: thread IDs are reused by OS, so lingering mappings
+    would incorrectly attribute subsequent unrelated thread logs to the old task.
     """
     root_thread_id = threading.get_ident()
     seen = {}
@@ -627,7 +628,7 @@ def test_bind_log_scope_follows_nested_helpers_and_is_released():
 
 
 def test_bind_log_scope_runs_inline_calls_without_rebinding():
-    """同一线程内直接调用包装后的函数时保持原样返回值，不改动作用域。"""
+    """Inline invocation of the wrapped function in the same thread preserves return values without altering scope."""
     bound = logging_utils.bind_log_scope(lambda value: value * 2)
 
     assert bound(21) == 42
@@ -662,11 +663,11 @@ def test_webui_worker_forwards_reference_audio_to_pipeline():
 
 def test_log_paths_stay_posix_style_on_every_platform():
     """
-    调用位置必须始终显示为 ``./app/services/task.py``。
+    Call site must consistently display as ``./app/services/task.py``.
 
-    Windows 的 ``os.path.relpath`` 返回反斜杠分隔的路径，直接拼接会输出
-    ``./app\\services\\task.py``，同一份日志在不同系统上格式不一致，也无法
-    和上面按正斜杠断言的后台日志回归测试对齐。
+    Windows ``os.path.relpath`` returns backslash-separated paths, which if concatenated directly
+    outputs ``./app\\services\\task.py``. This would cause inconsistent log formatting across operating systems
+    and fail assertions matching forward slashes in background log regression tests.
     """
     record = _log_record(
         os.path.join(logging_utils.PROJECT_ROOT, "app", "services", "task.py")
@@ -679,8 +680,8 @@ def test_log_paths_stay_posix_style_on_every_platform():
 
 def test_log_messages_shorten_only_the_complete_project_root():
     """
-    同级目录（如 ``<root>-backup``、``<root>2``）只是与项目根路径前缀相同，
-    不能被改写成 ``.-backup`` 这类错误路径；项目内路径仍应缩短。
+    Sibling directories (such as ``<root>-backup``, ``<root>2``) only share prefixes with project root,
+    and must not be rewritten into erroneous paths like ``.-backup``; in-project paths should still be shortened.
     """
     root = logging_utils.PROJECT_ROOT
     record = _log_record(
@@ -703,11 +704,11 @@ def test_log_messages_shorten_only_the_complete_project_root():
 
 def test_log_paths_on_another_mount_do_not_discard_the_record():
     """
-    映射盘或 ``subst`` 盘启动时不能让整条日志消失。
+    Startup on mapped or ``subst`` drives must not cause log messages to vanish.
 
-    这种部署下调用栈里的路径仍在 ``X:``，而 ``PROJECT_ROOT`` 已被 realpath
-    解析回 ``C:``，``os.path.relpath`` 会抛出 ``ValueError``。loguru 捕获
-    格式化异常后会丢弃记录，终端和 WebUI 日志面板会同时变空。
+    Under this deployment, paths in the call stack remain on ``X:``, while ``PROJECT_ROOT``
+    was resolved back to ``C:`` via realpath, causing ``os.path.relpath`` to raise ``ValueError``.
+    loguru discards records when formatting exceptions occur, leaving both terminal and WebUI log panels empty.
     """
     absolute_path = os.path.join(
         logging_utils.PROJECT_ROOT, "app", "services", "task.py"
@@ -726,7 +727,7 @@ def test_log_paths_on_another_mount_do_not_discard_the_record():
 
 
 def test_log_paths_outside_the_project_keep_the_absolute_path():
-    """项目目录之外的文件保持绝对路径，避免输出 ``./../..`` 这类回溯路径。"""
+    """Files outside the project root retain absolute paths to avoid outputting backtracking paths like ``./../..``."""
     outside_path = os.path.join(
         os.path.dirname(logging_utils.PROJECT_ROOT), "site-packages", "worker.py"
     )
@@ -738,7 +739,7 @@ def test_log_paths_outside_the_project_keep_the_absolute_path():
 
 
 def test_generation_log_fragment_refreshes_within_half_a_second():
-    """日志轮询间隔不能退回到明显落后于终端输出的秒级刷新。"""
+    """Log polling interval must not regress to second-level refresh visibly lagging behind terminal output."""
     assert webui_task.TASK_LOG_REFRESH_INTERVAL_SECONDS <= 0.5
 
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
@@ -759,11 +760,11 @@ def test_generation_log_fragment_refreshes_within_half_a_second():
 
 def test_generation_submit_skips_duplicate_config_save():
     """
-    提交任务后不能在页面末尾再次等待配置锁。
+    Submitting a task must not wait on config lock again at the end of the page.
 
-    后台任务会在完整生成期间持有 runtime_config_lock。生成分支已经请求过
-    非阻塞保存，页面末尾无需重复请求；普通交互则继续通过同一个非阻塞 helper
-    保存，不能重新退回 config.save_config。
+    Background tasks hold runtime_config_lock throughout generation. The generation branch
+    has already requested non-blocking save, so no redundant save is needed at page end;
+    normal interactions continue to save via the same non-blocking helper, avoiding fallback to config.save_config.
     """
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     controls = next(
@@ -810,7 +811,7 @@ def test_generation_submit_skips_duplicate_config_save():
 
 
 def test_terminal_logger_reload_preserves_task_log_handler():
-    """热重载只能替换终端 handler，不能清空后台任务的日志 sink。"""
+    """Hot reloading must only replace terminal handler without clearing background task log sinks."""
     previous_handler_id = logging_utils._terminal_handler_id
     try:
         with (
@@ -833,7 +834,7 @@ def test_terminal_logger_reload_preserves_task_log_handler():
 
 
 def test_worker_wrapper_failure_is_saved_instead_of_leaving_processing_state():
-    """日志或配置包装层异常也必须转换成可查询的失败终态。"""
+    """Exceptions in the log or config wrapper layer must also be converted to a queryable failed terminal state."""
     task_id = "worker-wrapper-failure-test"
     with (
         patch.object(webui_task.tm, "start", side_effect=RuntimeError("lock failed")),

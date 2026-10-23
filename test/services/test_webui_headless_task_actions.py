@@ -8,10 +8,10 @@ from streamlit.testing.v1 import AppTest
 
 from app.config import config
 
-# webui/Main.py 在导入 app.services.material 时会连带导入 moviepy，而 moviepy 在
-# 导入期就要解析 FFmpeg 可执行文件（依赖 sys.platform 选择平台二进制），numpy 也
-# 会按 sys.platform 决定是否调用 os.uname()。这些解析必须先于下面的 fixture 完成，
-# 否则在 Windows 上模拟无桌面服务器时会去找 Linux 版 FFmpeg 或直接抛 AttributeError。
+# When webui/Main.py imports app.services.material, it transitively imports moviepy, which resolves
+# the FFmpeg executable at import time (depending on sys.platform for platform binaries); numpy also
+# decides whether to invoke os.uname() based on sys.platform. These resolutions must complete prior to the
+# fixture below; otherwise simulating a headless server on Windows looks for Linux FFmpeg or raises AttributeError.
 from app.services import material as _material  # noqa: F401
 from app.services import state as sm
 from app.utils import utils
@@ -22,9 +22,9 @@ WEBUI_MAIN = ROOT_DIR / "webui" / "Main.py"
 
 @pytest.fixture
 def headless_task_app(tmp_path, monkeypatch):
-    # 使用独立任务目录避免读取或修改开发者的真实生成记录。测试文件只需要被
-    # Streamlit 注册为媒体资源，不参与视频解码，因此无需在单元测试中调用
-    # FFmpeg 生成素材，能够稳定覆盖无桌面服务器的 UI 分支。
+    # Use isolated tasks directory to avoid reading or modifying developer real generation records. Test files only need
+    # to be registered by Streamlit as media resources without participating in video decoding; thus invoking FFmpeg to generate
+    # media in unit tests is unnecessary, reliably covering headless server UI branches.
     tasks_dir = tmp_path / "storage" / "tasks"
     task_dir = tasks_dir / "headless-test"
     task_dir.mkdir(parents=True)
@@ -37,8 +37,8 @@ def headless_task_app(tmp_path, monkeypatch):
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
 
-    # AppTest 会多次重新执行页面脚本；配置保存必须在整个测试生命周期内保持
-    # 隔离，防止控件初始化意外写入开发者的 config.toml。
+    # AppTest re-executes page scripts multiple times; configuration saving must remain isolated
+    # throughout the test lifecycle to prevent widget initialization from accidentally writing to developer config.toml.
     with patch.object(config, "try_save_config", return_value=True):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
         app.run()
@@ -73,9 +73,9 @@ def test_headless_open_folder_shows_host_mapped_path(headless_task_app):
     app.run()
 
     assert not app.exception
-    # _open_task_path() 用 os.path.relpath() 生成相对部分，因此分隔符跟随运行
-    # 测试的平台。headless 分支是靠 monkeypatch sys.platform 进入的，在 Windows
-    # 上提示文本仍会带反斜杠，断言不能写死 POSIX 分隔符。
+    # _open_task_path() uses os.path.relpath() to generate the relative segment, so separators follow the platform
+    # running the test. The headless branch is entered via monkeypatched sys.platform, so toast text on Windows still
+    # contains backslashes; assertions must not hardcode POSIX separators.
     expected_folder = os.path.join("tasks", "headless-test")
     assert any(
         f"./storage/{expected_folder}" in toast.value for toast in app.get("toast")

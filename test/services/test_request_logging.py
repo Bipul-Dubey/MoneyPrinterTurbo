@@ -212,7 +212,7 @@ def test_active_webui_task_obeys_runtime_level_without_losing_its_sink():
         logger.error("always-visible")
 
         def update():
-            # 模拟用户在另一线程调试持有配置锁的运行任务。
+            # Simulate user debugging a running task that holds the config lock in another thread.
             logs.set_logging_options("ERROR", True)
 
         thread = threading.Thread(target=update)
@@ -308,7 +308,7 @@ def test_invalid_trace_config_preserves_valid_error_level(tmp_path):
 
 
 def test_concurrent_logging_updates_keep_runtime_and_saved_options_together(tmp_path):
-    """两个会话在任务持锁时同时应用，保存与运行状态必须采用同一组值。"""
+    """When two sessions apply simultaneously while a task holds the lock, saved and runtime states must use the same values."""
     import toml
 
     acquired = threading.Event()
@@ -369,7 +369,7 @@ def test_concurrent_logging_updates_keep_runtime_and_saved_options_together(tmp_
                 if thread.ident is not None:
                     thread.join(5)
         assert not errors
-        # 后台刷新退出后再恢复被 patch 的配置，避免写入用户配置。
+        # Restore patched config only after background flush exits to avoid writing to user config.
         config.try_save_config()
         import time
 

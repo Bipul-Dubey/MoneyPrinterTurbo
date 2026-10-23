@@ -101,7 +101,7 @@ class TestVideoParams(unittest.TestCase):
         )
 
     def test_subtitle_modes_accept_only_supported_api_values(self):
-        """新增字幕参数必须拒绝拼写错误，避免请求成功后静默降级。"""
+        """New subtitle parameters must reject typos to avoid silent degradation after successful requests."""
         params = VideoParams(
             video_subject="Coffee",
             subtitle_display_mode="word_by_word",
@@ -144,7 +144,7 @@ class TestVideoParams(unittest.TestCase):
                 self.assertIs(request.subtitle_enabled, False)
 
     def test_invalid_saved_subtitle_mode_falls_back_during_upgrade(self):
-        """旧配置包含无效值时应回退默认值，而不是阻止服务启动。"""
+        """When legacy configuration contains invalid values, fall back to default values rather than blocking service startup."""
         with patch.object(
             schema.config,
             "ui",

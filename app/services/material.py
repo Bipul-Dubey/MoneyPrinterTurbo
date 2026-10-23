@@ -42,7 +42,7 @@ _api_key_lock = threading.Lock()
 # Short stock and generated clips should stay well below this conservative cap.
 MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024
 
-# 默认保持串行，与旧版行为一致；有需要时可在配置中提高库存素材并发数。
+# Default to sequential execution to maintain legacy behavior; stock material concurrency can be increased in configuration if needed.
 _DEFAULT_MATERIAL_CONCURRENCY = 1
 
 
@@ -55,7 +55,7 @@ def _get_material_concurrency() -> int:
 
 
 class _OpenAIImageDecodeError(ValueError):
-    """表示兼容接口返回的字节无法解码为图片，不包含本地文件写入故障。"""
+    """Indicates that bytes returned from the compatible API cannot be decoded as an image, excluding local file write errors."""
 
 
 class OpenAIImagePaidResultError(RuntimeError):
@@ -68,11 +68,11 @@ class OpenAIImageUnconfirmedError(OpenAIImagePaidResultError):
 
 def _safe_public_url(value: Any) -> str | None:
     """
-    只保留可公开展示的 HTTP(S) 页面地址，并移除查询参数和凭据。
+    Retain only publicly displayable HTTP(S) page URLs, stripping query parameters and credentials.
 
-    素材下载地址可能携带 API Key、签名 JWT 或临时 token。任务清单只需要
-    帮助用户回到供应商的公开素材页，不应保存鉴权参数；用户信息形式的 URL
-    同样拒绝，避免 ``https://user:pass@example.com`` 一类内容落盘。
+    Material download URLs may carry API keys, signed JWTs, or temporary tokens. The task manifest only needs
+    to help users navigate back to the provider's public material page and should not persist authentication parameters;
+    URLs containing user credentials are also rejected to prevent persisting content like ``https://user:pass@example.com``.
     """
     if not isinstance(value, str) or not value.strip():
         return None
@@ -92,7 +92,7 @@ def _safe_public_url(value: Any) -> str | None:
 
 
 def _creator_info(value: Any) -> dict[str, str] | None:
-    """从不同供应商的作者结构中提取统一的公开字段。"""
+    """Extract unified public fields from author structures across different providers."""
     if isinstance(value, str) and value.strip():
         return {"name": value.strip()}
     if not isinstance(value, dict):
@@ -115,11 +115,12 @@ def _creator_info(value: Any) -> dict[str, str] | None:
 
 def _material_source_record(item: MaterialInfo, local_path: str) -> dict[str, Any]:
     """
-    为成功下载的素材生成轻量来源记录。
+    Generate a lightweight provenance record for successfully downloaded materials.
 
-    ``source_info`` 可能来自缓存，甚至来自外部构造的 ``MaterialInfo``，因此
-    不能原样写入。这里按白名单重新构造，只保留公开页面、业务标识和尺寸，
-    并只记录本地文件名，避免用户目录或 Docker 挂载路径进入任务文件。
+    ``source_info`` may come from cache or an externally constructed ``MaterialInfo``, so
+    it cannot be written as-is. It is reconstructed here using an allowlist, preserving only public pages,
+    business identifiers, and dimensions, while recording only the local filename to avoid persisting user
+    directories or Docker mount paths into task files.
     """
     source = item.source_info if isinstance(item.source_info, dict) else {}
     record: dict[str, Any] = {
@@ -159,11 +160,12 @@ def _persist_material_sources(
     material_sources: list[dict[str, Any]],
 ) -> None:
     """
-    将当前实际下载成功的素材来源补充到任务清单。
+    Append provenance for currently successfully downloaded materials to the task manifest.
 
-    任务记录是辅助能力，不能改变视频下载函数的返回值，也不能因为写盘失败
-    中断成片主流程。``patch_script_data`` 会负责原子替换和异常日志；这里仅在
-    成功后记录数量，便于确认任务追溯信息是否已经落盘。
+    Task recording is an auxiliary capability; it must not alter the return value of video download functions,
+    nor interrupt the main video generation flow due to disk write failures. ``patch_script_data`` handles atomic
+    replacement and exception logging; this function only logs the count upon success to confirm that traceability
+    information has been persisted.
     """
     try:
         saved = task_artifacts.patch_script_data(
@@ -176,8 +178,8 @@ def _persist_material_sources(
                 f"task_id={task_id}, count={len(material_sources)}"
             )
     except Exception as exc:
-        # task_artifacts 自身已经按失败降级设计，这里仍保留最后一道隔离，
-        # 防止未来实现调整或目录解析异常意外影响素材下载返回值。
+        # task_artifacts is designed with failure fallback, but this final isolation layer is retained
+        # to prevent future implementation changes or directory resolution errors from affecting the download return value.
         logger.warning(
             "failed to persist material source records: "
             f"task_id={task_id}, error={type(exc).__name__}, detail={exc}"
@@ -185,9 +187,9 @@ def _persist_material_sources(
 
 
 def _get_tls_verify() -> bool:
-    # 默认开启 TLS 证书校验，防止素材搜索和下载过程被中间人篡改。
-    # 仅在企业代理、自签证书等明确需要的场景下，允许用户通过
-    # `config.toml` 显式设置 `tls_verify = false` 临时关闭。
+    # TLS certificate verification is enabled by default to prevent MITM tampering during search and download.
+    # Only in scenarios strictly requiring it (such as enterprise proxies or self-signed certs), users may
+    # temporarily disable it by explicitly setting `tls_verify = false` in `config.toml`.
     tls_verify = config.app.get("tls_verify", True)
     if isinstance(tls_verify, str):
         tls_verify = tls_verify.strip().lower() not in ("0", "false", "no", "off")
@@ -221,11 +223,11 @@ def get_api_key(cfg_key: str):
 
 def _redact_secret(message: str, secret: str) -> str:
     """
-    对即将写入日志的异常文本做最小范围脱敏。
+    Perform minimal redaction on exception text before logging.
 
-    requests 的连接异常可能包含完整请求 URL，而 Pixabay API Key 通过查询
-    参数传递。这里同时替换原始值和 URL 编码值，既保留网络错误信息用于排查，
-    又避免密钥进入日志文件。
+    Requests connection exceptions may include the full request URL, while Pixabay API keys are passed
+    via query parameters. Both raw and URL-encoded values are redacted here, retaining network error details
+    for troubleshooting while preventing secrets from entering log files.
     """
     safe_message = str(message)
     if not secret:
@@ -240,10 +242,11 @@ def _redact_secret(message: str, secret: str) -> str:
 
 def _redact_request_error(error: Exception, *secrets: str) -> str:
     """
-    保留网络异常的可排查信息，同时移除 API Key 和代理凭据。
+    Retain troubleshooting context for network exceptions while removing API keys and proxy credentials.
 
-    直接只记录异常类型会丢失 DNS、证书、超时等关键上下文；直接记录原始异常
-    又可能回显完整请求 URL。统一入口可以让三个素材供应商使用相同脱敏规则。
+    Logging only the exception class loses critical context such as DNS, certificate, or timeout details;
+    logging the raw exception directly may echo the full request URL. A unified entry point applies consistent
+    redaction rules across all three stock providers.
     """
     safe_message = str(error)
     for secret in secrets:
@@ -255,11 +258,11 @@ def _redact_request_error(error: Exception, *secrets: str) -> str:
 
 def _is_cloudflare_challenge(response: requests.Response) -> bool:
     """
-    识别 Cloudflare 返回的 HTML Challenge，而不是把它当成 Pixabay JSON。
+    Identify HTML Challenges returned by Cloudflare rather than treating them as Pixabay JSON.
 
-    Cloudflare 通常会设置 `cf-mitigated: challenge`；部分部署只返回带有
-    "Just a moment" 或 challenge-platform 的 HTML，因此保留内容特征兜底。
-    响应正文仅在内存中判断，不写入日志，避免记录无价值的大段 HTML。
+    Cloudflare typically sets `cf-mitigated: challenge`; some deployments only return HTML containing
+    "Just a moment" or challenge-platform, so content feature matching is retained as fallback.
+    The response body is evaluated only in memory and never logged to avoid polluting logs with large HTML dumps.
     """
     headers = getattr(response, "headers", {}) or {}
     if str(headers.get("cf-mitigated", "")).lower() == "challenge":
@@ -281,11 +284,11 @@ def _matches_video_aspect(
     is_vertical: Any = None,
 ) -> bool:
     """
-    判断远端素材是否与目标画面方向一致。
+    Determine whether remote material matches the target video aspect ratio.
 
-    Pexels、Pixabay 和 Coverr 的响应字段并不统一，因此先使用宽高做可靠判断；
-    Coverr 部分历史响应缺少尺寸时，再使用明确的 ``is_vertical`` 布尔值兜底。
-    无法确认方向的素材直接跳过，避免竖屏任务混入横屏素材并在成片中产生黑边。
+    Response schemas differ across Pexels, Pixabay, and Coverr, so width and height are checked first for reliability;
+    when Coverr legacy responses lack dimensions, the explicit ``is_vertical`` boolean is used as a fallback.
+    Materials with indeterminable orientation are skipped to prevent landscape clips from introducing black bars into portrait videos.
     """
     aspect = VideoAspect(video_aspect)
     try:
@@ -312,16 +315,16 @@ def _filter_materials_by_aspect(
     video_aspect: VideoAspect,
 ) -> List[MaterialInfo]:
     """
-    对缓存结果再次校验方向。
+    Re-validate orientation on cached results.
 
-    素材搜索缓存最长保留 24 小时，升级前写入的缓存可能包含方向不匹配的素材。
-    在统一缓存入口过滤可以让修复立即生效，也能防御第三方 Provider 或旧缓存
-    遗漏远端筛选。无法读取 rendition 尺寸的旧条目按未验证处理并跳过。
+    Material search caches are retained up to 24 hours; caches created before upgrades may contain mismatched orientations.
+    Filtering at the unified cache entry point applies fixes immediately and protects against third-party providers or stale caches
+    missing remote filtering. Legacy entries whose rendition dimensions cannot be read are treated as unverified and skipped.
     """
     aspect = VideoAspect(video_aspect)
     if aspect == VideoAspect.square:
-        # Pixabay 和 Coverr 很少提供原生方形素材。方形输出沿用既有行为，
-        # 接受可用候选并交给视频合成阶段裁剪，避免升级后 1:1 任务无素材。
+        # Pixabay and Coverr rarely provide native square materials. Square output preserves existing behavior,
+        # accepting available candidates and delegating cropping to video synthesis to avoid empty results for 1:1 tasks.
         return list(items)
 
     filtered_items = []
@@ -545,8 +548,8 @@ def search_videos_pixabay(
                 video_url = video.get("url")
                 if not isinstance(video_url, str) or not video_url:
                     continue
-                # Pixabay 很少返回原生方形视频；1:1 输出继续接受满足分辨率的
-                # 候选并由合成阶段裁剪。横竖屏则必须严格匹配目标方向。
+                # Pixabay rarely returns native square videos; 1:1 output continues to accept candidates
+                # meeting resolution thresholds for cropping during synthesis. Landscape and portrait must match strictly.
                 orientation_matches = aspect == VideoAspect.square or (
                     _matches_video_aspect(w, h, aspect)
                 )
@@ -597,18 +600,18 @@ def search_videos_coverr(
     subject to Coverr license terms (https://coverr.co/license).
 
     Coverr API notes (based on official docs at api.coverr.co/docs/):
-      - 鉴权: Authorization: Bearer <api_key>
-      - 搜索端点: GET /videos?query=...,响应结构 {"hits": [...], ...}
-      - 加 ?urls=true 在搜索响应里直接返回 mp4 直链
-      - URL 是 signed JWT(绑定 API key,无过期时间)
-      - Coverr 支持通过 filter=is_vertical:true/false 筛选横竖屏素材；
-        响应返回后仍根据 max_width/max_height 或 is_vertical 做本地校验
-      - duration 字段同时存在 number 和 string 两种形态,本函数都接受
+      - Authentication: Authorization: Bearer <api_key>
+      - Search endpoint: GET /videos?query=..., response schema {"hits": [...], ...}
+      - Append ?urls=true to return direct mp4 URLs in the search response
+      - URL is a signed JWT (bound to API key, no expiration)
+      - Coverr supports filtering orientation via filter=is_vertical:true/false;
+        responses are still validated locally via max_width/max_height or is_vertical
+      - The duration field may appear as either number or string; both are accepted
 
-    本函数使用 urls.mp4_download 字段作为下载地址 —— 按 Coverr 官方文档
-    (https://api.coverr.co/docs/videos/#download-a-video) 的说法,
-    GET 这个 URL 本身就被 Coverr 当作一次合法的 download 事件计入统计,
-    无需再调用 PATCH /videos/:id/stats/downloads。
+    This function uses the urls.mp4_download field as download URL — according to Coverr official documentation
+    (https://api.coverr.co/docs/videos/#download-a-video),
+    issuing a GET on this URL is treated by Coverr as a legitimate download event for analytics,
+    without requiring an additional call to PATCH /videos/:id/stats/downloads.
     """
     aspect = VideoAspect(video_aspect)
     api_key = get_api_key("coverr_api_keys")
@@ -619,8 +622,8 @@ def search_videos_coverr(
         "urls": "true",
         "sort": "popular",
     }
-    # 服务端方向筛选可以直接从完整搜索结果中返回目标素材，避免先取热门结果再
-    # 本地过滤导致竖屏候选为空。方形素材没有对应布尔条件，继续依赖本地宽高校验。
+    # Server-side orientation filtering returns matching assets directly from the full search index, avoiding empty portrait
+    # candidates caused by fetching top hits first and filtering locally. Square material lacks a boolean filter and relies on local dimension checks.
     if aspect == VideoAspect.portrait:
         params["filter"] = "is_vertical:true"
     elif aspect == VideoAspect.landscape:
@@ -649,7 +652,7 @@ def search_videos_coverr(
         for v in response["hits"]:
             if not isinstance(v, dict):
                 continue
-            # duration 在不同响应里可能是 number(11.625) 或 string("10.500000")
+            # duration may be number(11.625) or string("10.500000") in different responses
             try:
                 duration = int(float(v.get("duration") or 0))
             except (OverflowError, TypeError, ValueError):
@@ -703,39 +706,39 @@ def search_videos_coverr(
     return []
 
 
-# WaveSpeed AI (https://wavespeed.ai) 通过文生视频模型按脚本关键词直接生成素材，
-# 与三个库存素材源共用 MaterialInfo 结果结构和后续下载、剪辑流程。
+# WaveSpeed AI (https://wavespeed.ai) generates materials directly from script keywords via text-to-video models,
+# sharing the MaterialInfo schema and downstream download/editing pipeline with the three stock sources.
 WAVESPEED_API_BASE_URL = "https://api.wavespeed.ai/api/v3"
 WAVESPEED_DEFAULT_T2V_MODEL = "bytedance/seedance-2.0-fast/text-to-video"
 WAVESPEED_POLL_INTERVAL_SECONDS = 2.0
 WAVESPEED_RUN_TIMEOUT_SECONDS = 600.0
-# 默认模型 bytedance/seedance-2.0-fast/text-to-video 只接受 4-15 秒；超出
-# 范围的请求会被 API 直接拒绝。WebUI 默认片段时长是 3 秒，因此必须在提交
-# 前收敛到模型支持区间，多出的时长由现有剪辑流程按片段时长裁掉。
+# Default model bytedance/seedance-2.0-fast/text-to-video only accepts 4-15 seconds; out-of-range requests
+# are rejected by the API. The WebUI default segment duration is 3 seconds, so values must be clamped to the supported
+# range before submission; excess duration is trimmed by the editing pipeline to match segment duration.
 WAVESPEED_MIN_DURATION_SECONDS = 4
 WAVESPEED_MAX_DURATION_SECONDS = 15
-# 三个失败态语义不同（模型报错 / 用户取消 / 平台超时），但对素材流程都意味着
-# 本关键词没有产物，统一按空结果处理，交给上层跳过该片段继续生成。
+# The three failure states have different semantics (model error / user cancellation / platform timeout), but for the material pipeline
+# all mean no output was generated for the keyword; treat uniformly as empty results so upper layers skip and proceed.
 WAVESPEED_FAILURE_STATUSES = frozenset({"failed", "cancelled", "timeout"})
-# 与 WaveSpeed 官方 Python SDK / n8n 节点保持同一口径：429 与 5xx 属于临时
-# 故障，值得有限次退避重试；4xx 是明确的客户端错误，快速失败。
+# Aligned with official WaveSpeed Python SDK / n8n nodes: 429 and 5xx are transient errors eligible
+# for bounded backoff retry; 4xx represents explicit client errors that fail fast.
 WAVESPEED_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
-# 单次轮询允许的连续临时失败次数。一次不走运的 GET 不能让已经计费的任务失联。
+# Maximum consecutive transient failures allowed during a single poll. An unlucky GET should not lose track of a billed task.
 WAVESPEED_MAX_POLL_RETRIES = 5
-# 线性退避基数，第 n 次重试等待 base * n 秒。
+# Linear backoff base; the n-th retry waits base * n seconds.
 WAVESPEED_RETRY_BASE_SECONDS = 1.0
-# 产物下载失败时对同一个签名地址的重试次数。素材已经付费生成，优先重试原
-# 地址，不能因为一次下载抖动就重新提交一次付费生成任务。
+# Retry attempts on the same signed URL when asset download fails. Material is already paid and generated; retry
+# the original URL first rather than submitting another paid generation task due to download jitter.
 WAVESPEED_MAX_DOWNLOAD_RETRIES = 2
 
 
 class WaveSpeedUnconfirmedTaskError(RuntimeError):
     """
-    付费生成任务已提交，但最终状态无法在本地确认。
+    A paid generation task was submitted, but its final status cannot be confirmed locally.
 
-    这类异常绝不等价于“该任务失败、可以重来”：远端任务可能仍在运行或已经
-    完成并计费。素材流程必须就此停止，不再为后续关键词提交新的付费任务，
-    并把已提交的 prediction id 传给任务状态供人工找回。
+    This error is never equivalent to "task failed, safe to retry": the remote task may still be running or completed
+    and billed. The material pipeline must halt immediately, submit no further paid tasks for remaining keywords,
+    and propagate the submitted prediction id into the task state for manual retrieval.
     """
 
     def __init__(self, message: str, prediction_id: str = ""):
@@ -752,7 +755,7 @@ class WaveSpeedDownloadError(RuntimeError):
 
 
 def _wavespeed_status_code(response: Any) -> int:
-    """读取响应状态码；测试替身或异常对象缺少该字段时按 200 处理。"""
+    """Read response status code; treat as 200 when test doubles or exception objects lack this field."""
     try:
         return int(getattr(response, "status_code", 200))
     except (TypeError, ValueError):
@@ -761,10 +764,10 @@ def _wavespeed_status_code(response: Any) -> int:
 
 def _is_wavespeed_retryable_error(error: Exception) -> bool:
     """
-    判断轮询异常是否值得重试。
+    Determine whether a polling exception warrants a retry.
 
-    连接、超时一类网络异常没有状态码，按临时故障处理；带状态码的响应只在
-    429 和 5xx 时重试，与官方 SDK 的重试集合保持一致。
+    Network errors like connection or timeout lack status codes and are treated as transient failures;
+    responses with status codes are only retried on 429 and 5xx, matching the official SDK retry behavior.
     """
     if isinstance(
         error,
@@ -783,11 +786,11 @@ def _is_wavespeed_retryable_error(error: Exception) -> bool:
 
 def _wavespeed_duration_bounds() -> tuple[int, int]:
     """
-    返回当前模型支持的生成时长区间（秒）。
+    Return generation duration bounds (in seconds) supported by the current model.
 
-    默认区间对应默认 Seedance 模型；用户切换到其它文生视频模型时，可以在
-    配置中同步调整区间。任何异常配置都退回默认值，并保证 min <= max，
-    避免把用户输入变成必然失败的远端请求。
+    The default range corresponds to the default Seedance model; when switching to other text-to-video models,
+    users can adjust bounds in the configuration. Invalid configurations fall back to defaults with min <= max guaranteed,
+    preventing user input from producing doomed remote requests.
     """
 
     def read_bound(key: str, fallback: int) -> int:
@@ -808,11 +811,11 @@ def generate_videos_wavespeed(
     video_aspect: VideoAspect = VideoAspect.portrait,
 ) -> List[MaterialInfo]:
     """
-    用 WaveSpeed 文生视频模型为一个脚本关键词生成一段素材。
+    Generate video material for a script keyword using the WaveSpeed text-to-video model.
 
-    与库存素材源的 search_videos_* 保持同一签名和空列表失败约定，
-    使其可以直接接入 ``download_videos`` 的通用下载与时长核算流程。
-    ``minimum_duration`` 在生成语境下就是目标片段时长（秒）。
+    Maintains the same signature and empty-list failure convention as stock search_videos_* sources,
+    allowing seamless integration into the common ``download_videos`` download and duration accounting pipeline.
+    In the generation context, ``minimum_duration`` represents the target segment duration (seconds).
     """
     aspect = VideoAspect(video_aspect)
     video_width, video_height = aspect.to_resolution()
@@ -830,8 +833,8 @@ def generate_videos_wavespeed(
     min_duration, max_duration = _wavespeed_duration_bounds()
     duration = min(max(requested_duration, min_duration), max_duration)
     if duration != requested_duration:
-        # 生成比请求更长不会影响成片：剪辑流程仍按片段时长裁剪；生成比请求
-        # 更短的情况只发生在请求超过模型上限时，此时也只能收敛到上限。
+        # Generating longer than requested does not affect the final video: the editing pipeline clips to segment duration;
+        # generating shorter only happens when requests exceed the model ceiling, where clamping to the ceiling is necessary.
         logger.info(
             f"wavespeed clip duration clamped to model-supported range: "
             f"requested={requested_duration}s, using={duration}s "
@@ -847,8 +850,8 @@ def generate_videos_wavespeed(
         f"term={search_term!r}, duration={duration}s"
     )
 
-    # 提交 POST 绝不自动重试：请求可能已经在远端创建了付费任务，重发会造成
-    # 重复生成和重复扣费（与官方 SDK 的 submission 策略一致）。
+    # Never auto-retry POST submissions: the request may have already created a paid task remotely; re-sending
+    # causes duplicate generation and double billing (matching official SDK submission strategy).
     try:
         submit_response = trace_http_call(
             "POST", requests.post,
@@ -860,8 +863,8 @@ def generate_videos_wavespeed(
             timeout=(30, 60),
         )
     except Exception as e:
-        # 没有收到响应并不代表任务没有创建。此时状态不明，必须终止整个生成
-        # 流程，而不是继续为下一个关键词提交新的付费任务。
+        # Not receiving a response does not mean the task was not created. Status is indeterminate; halt the entire
+        # generation flow rather than submitting new paid tasks for subsequent keywords.
         raise WaveSpeedUnconfirmedTaskError(
             "wavespeed submission did not return a response, the task may "
             "already exist remotely: "
@@ -870,7 +873,7 @@ def generate_videos_wavespeed(
 
     submit_status = _wavespeed_status_code(submit_response)
     if submit_status >= 500:
-        # 5xx 可能发生在任务创建之后，无法判断是否已经计费。
+        # 5xx may occur after task creation; impossible to confirm whether billing occurred.
         raise WaveSpeedUnconfirmedTaskError(
             f"wavespeed submission failed with HTTP {submit_status}, "
             "the task may already exist remotely"
@@ -879,8 +882,8 @@ def generate_videos_wavespeed(
         submit_body = submit_response.json()
     except Exception as e:
         if 400 <= submit_status < 500:
-            # 网关或鉴权层返回的 4xx 可能是纯文本/HTML。4xx 仍是明确拒绝，
-            # 远端没有创建任务，不能误报为“可能已计费”而终止整个任务。
+            # Gateway or auth layer 4xx may return plain text/HTML. 4xx is still an explicit refusal with no remote
+            # task created, so do not misreport as "potentially billed" to abort the entire task.
             logger.error(
                 "wavespeed video generation request rejected: "
                 f"http_status={submit_status}, unreadable body: {type(e).__name__}"
@@ -893,8 +896,8 @@ def generate_videos_wavespeed(
 
     submit_data = submit_body.get("data") if isinstance(submit_body, dict) else None
     if not isinstance(submit_body, dict) or submit_body.get("code") != 200:
-        # 4xx 与业务错误码是明确的拒绝，远端没有创建任务，也就不存在重复
-        # 计费风险，按现有素材源约定返回空结果并继续。
+        # 4xx and business error codes are explicit rejections without remote task creation or double-billing risk;
+        # return empty results according to existing material source conventions and continue.
         logger.error(
             "wavespeed video generation request rejected: "
             f"http_status={submit_status}, "
@@ -906,12 +909,12 @@ def generate_videos_wavespeed(
         str(submit_data.get("id") or "") if isinstance(submit_data, dict) else ""
     )
     if not prediction_id:
-        # 提交被接受但没拿到 ID：任务可能已经存在却无法追踪，不能继续下单。
+        # Submission was accepted but no ID returned: task may exist untracked, cannot place further orders.
         raise WaveSpeedUnconfirmedTaskError(
             "wavespeed accepted the submission without returning a prediction id"
         )
-    # 生成任务提交成功即产生远端计费副作用，先落日志记录任务 ID，
-    # 即使后续轮询失败，用户仍能凭 ID 在 WaveSpeed 控制台找回产物。
+    # Successful submission carries remote billing side effects; log task ID immediately so that
+    # even if subsequent polling fails, users can retrieve assets from the WaveSpeed console using the ID.
     logger.info(f"wavespeed prediction created: id={prediction_id}")
 
     result_data = _wait_for_wavespeed_prediction(
@@ -926,8 +929,8 @@ def generate_videos_wavespeed(
         video_items = []
         outputs = result_data.get("outputs")
         for output in outputs if isinstance(outputs, list) else []:
-            # 产物 URL 是带签名的临时下载地址，必须整体保留（不能剥离查询参
-            # 数），因此不写入 source_info，只用于随后的立即下载。
+            # Asset URL is a signed temporary download URL that must be preserved whole (query params intact),
+            # so it is not written to source_info and is used only for immediate download.
             if not isinstance(output, str) or not output.startswith(
                 ("http://", "https://")
             ):
@@ -954,8 +957,8 @@ def generate_videos_wavespeed(
             )
         return video_items
     except Exception as e:
-        # 产物已经生成并计费，这里的异常只可能来自本地解析。记录后按空结果
-        # 返回，让上层跳过该片段，但任务状态本身是确定的，可以继续后续片段。
+        # Asset has been generated and billed; exceptions here stem only from local parsing. Log and return
+        # empty result to skip this segment; the task status itself is deterministic so subsequent segments may proceed.
         logger.error(
             "wavespeed output parsing failed: "
             f"id={prediction_id}, error={type(e).__name__}, "
@@ -972,12 +975,12 @@ def _wait_for_wavespeed_prediction(
     api_key: str,
 ) -> dict | None:
     """
-    轮询同一个 prediction id 直到出现确定结果。
+    Poll the same prediction id until a definitive result is reached.
 
-    返回 ``completed`` 的 data；远端明确失败（failed / cancelled / timeout）
-    时返回 None，表示该任务已经结束、可以安全地继续后续片段。临时故障按
-    线性退避重试同一个 ID，绝不重新提交任务；状态始终无法确认时抛出
-    :class:`WaveSpeedUnconfirmedTaskError`，由调用方终止整个生成流程。
+    Returns ``completed`` data; returns None on explicit remote failures (failed / cancelled / timeout),
+    indicating the task has ended and subsequent segments can safely proceed. Transient failures retry the same ID
+    with linear backoff without ever re-submitting; if status remains unconfirmed, raises
+    :class:`WaveSpeedUnconfirmedTaskError` for the caller to terminate the entire generation flow.
     """
     deadline = time.monotonic() + WAVESPEED_RUN_TIMEOUT_SECONDS
     consecutive_failures = 0
@@ -1001,8 +1004,8 @@ def _wait_for_wavespeed_prediction(
                 result_body.get("data") if isinstance(result_body, dict) else None
             )
             if not isinstance(result_body, dict) or result_body.get("code") != 200:
-                # 轮询被明确拒绝（如 4xx）时任务状态仍然未知：任务已经提交，
-                # 只是本地查不到结果，同样不能继续提交新的付费任务。
+                # When polling is explicitly rejected (e.g. 4xx), task status remains unknown: the task was submitted
+                # but local lookup failed, so no further paid tasks should be submitted.
                 raise WaveSpeedUnconfirmedTaskError(
                     "wavespeed prediction status is unknown: "
                     f"http_status={status_code}, "
@@ -1045,7 +1048,7 @@ def _wait_for_wavespeed_prediction(
             time.sleep(delay)
             continue
 
-        # 拿到一次有效响应就重置计数，只有连续失败才消耗重试额度。
+        # Reset counter on any valid response; retry quota is consumed only by consecutive failures.
         consecutive_failures = 0
         status = str(result_data.get("status") or "")
         if status == "completed":
@@ -1058,7 +1061,7 @@ def _wait_for_wavespeed_prediction(
             )
             return None
         if time.monotonic() > deadline:
-            # 远端任务仍在执行，本地无法确认最终状态，必须停止继续下单。
+            # Remote task is still running; local final status cannot be confirmed, so further ordering must cease.
             raise WaveSpeedUnconfirmedTaskError(
                 f"wavespeed prediction is still {status or 'pending'} after "
                 f"{WAVESPEED_RUN_TIMEOUT_SECONDS:.0f}s of local waiting",
@@ -1071,10 +1074,10 @@ def _save_generated_video_with_retry(
     video_url: str, save_dir: str, provider: str
 ) -> str:
     """
-    下载已经付费生成的产物，失败时优先重试同一个地址。
+    Download paid and generated assets, retrying the same URL first on failure.
 
-    重新生成一次远端任务的代价是再付一次费，所以下载抖动必须先在原地址上
-    做有限次退避重试，重试耗尽后由调用方报告可恢复的付费任务失败。
+    Re-generating remotely costs another fee, so download jitter must be retried on the original URL with
+    bounded backoff first; once retries are exhausted, the caller reports a recoverable paid task failure.
     """
     for attempt in range(WAVESPEED_MAX_DOWNLOAD_RETRIES + 1):
         try:
@@ -1132,9 +1135,9 @@ def _get_downloaded_video_duration(video_path: str) -> float:
     return duration
 
 
-# requests 流式下载期间不产生任何日志。慢速网络下单个 4K 素材要下载数分钟，
-# 任务看起来像卡死。超过这个间隔仍未下完时记录已下载大小和速度；间隔内
-# 完成的小文件不产生额外日志，避免刷屏。
+# Requests stream download emits no logs during transfer. Over slow networks, downloading a 4K asset can take minutes,
+# making tasks look frozen. Log downloaded size and speed when exceeding this interval; small files completed within
+# the interval omit extra logs to avoid log spam.
 _DOWNLOAD_HEARTBEAT_SECONDS = 15.0
 _BYTES_PER_MEGABYTE = 1024 * 1024
 
@@ -1142,7 +1145,7 @@ _BYTES_PER_MEGABYTE = 1024 * 1024
 def _describe_download_progress(
     downloaded_bytes: int, declared_size: int, elapsed_seconds: float
 ) -> str:
-    """把下载进度整理成一段日志文字；服务器未声明大小时不给百分比。"""
+    """Format download progress into a log message; omit percentage if server does not declare content length."""
     downloaded_mb = downloaded_bytes / _BYTES_PER_MEGABYTE
     speed = downloaded_mb / elapsed_seconds if elapsed_seconds > 0 else 0.0
     if declared_size > 0:
@@ -1220,7 +1223,7 @@ def save_video(video_url: str, save_dir: str = "") -> str:
                         now = time.monotonic()
                         if now - last_report_at >= _DOWNLOAD_HEARTBEAT_SECONDS:
                             last_report_at = now
-                            # 只记录缓存文件名：下载地址可能带签名或密钥。
+                            # Log cache filename only: download URL may contain signatures or keys.
                             logger.info(
                                 f"downloading video {video_id}.mp4: "
                                 + _describe_download_progress(
@@ -1273,42 +1276,40 @@ def save_video(video_url: str, save_dir: str = "") -> str:
                 )
 
 
-# OpenAI 兼容文生图（Issue #1274）通过 /images/generations 协议为脚本关键词
-# 生成图片素材，既可指向本地 ComfyUI/SD 网关，也可用于各类 OpenAI 协议中转
-# 服务。生成的图片立即渲染成与 local 素材同款"缓慢放大"mp4 片段，对下游
-# 剪辑流程完全透明。
+# OpenAI-compatible text-to-image (Issue #1274) generates image assets for script keywords via /images/generations,
+# targeting either local ComfyUI/SD gateways or OpenAI-compatible relay services. Generated images are immediately
+# rendered into "slow zoom" mp4 clips matching local image behavior, completely transparent to downstream editing.
 OPENAI_IMAGE_ENDPOINT_PATH = "images/generations"
-# OpenAI 官方图片接口只接受模型规定的尺寸，不能直接传视频分辨率（如 1080x1920）。
-# 留空 openai_image_size 时按画幅取以下兼容默认值；本地网关可显式配置覆盖。
+# Official OpenAI image API only accepts model-defined sizes, not arbitrary video resolutions (e.g. 1080x1920).
+# When openai_image_size is empty, use compatible defaults below by aspect ratio; local gateways can explicitly override.
 OPENAI_IMAGE_DEFAULT_SIZES = {
     VideoAspect.portrait: "1024x1536",
     VideoAspect.landscape: "1536x1024",
     VideoAspect.square: "1024x1024",
 }
-# 与 WaveSpeed 保持同一重试口径：429 与 5xx 属于临时故障，做有限次退避重试。
+# Same retry policy as WaveSpeed: 429 and 5xx are transient errors eligible for bounded backoff retries.
 OPENAI_IMAGE_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
-# 401/403 是当前 key 被明确拒绝。get_api_key 每次调用轮换 key，配置了多个
-# key 时重试会自动换 key；只有一个 key 时快速失败，不做无意义重试。
+# 401/403 indicates explicit rejection of the current key. get_api_key rotates keys on each call, so multi-key setups
+# automatically switch keys on retry; single-key setups fail fast to avoid futile attempts.
 OPENAI_IMAGE_KEY_ERROR_STATUS_CODES = frozenset({401, 403})
 OPENAI_IMAGE_MAX_ATTEMPTS = 3
 OPENAI_IMAGE_MAX_BYTES = 25 * 1024 * 1024
 OPENAI_IMAGE_MAX_PIXELS = 50_000_000
-# 串行出图 + 线性退避，兼容中转服务普遍的限流恢复窗口。
+# Sequential image generation + linear backoff, compatible with common rate-limit recovery windows on relay services.
 OPENAI_IMAGE_RETRY_BACKOFF_SECONDS = (5, 15, 30)
-# 同步生成接口可能需要数十秒才返回图片，读超时给足余量。
+# Synchronous generation APIs may take tens of seconds to return images; provide generous read timeout.
 OPENAI_IMAGE_REQUEST_TIMEOUT = (30, 300)
-# 图片已按张计费后的下载重试：优先重试原地址，而不是重新生成同一张图。
+# Download retry after image has been billed per unit: retry original URL first rather than re-generating the image.
 OPENAI_IMAGE_MAX_DOWNLOAD_ATTEMPTS = 3
 OPENAI_IMAGE_DOWNLOAD_BACKOFF_SECONDS = 2
 
 
 def is_openai_image_enabled(app_config: dict | None = None) -> bool:
     """
-    判断 OpenAI 兼容文生图素材源是否已完成最小配置。
+    Determine whether the OpenAI-compatible text-to-image source has minimal valid configuration.
 
-    API Key 允许为空：完全本地的 ComfyUI/SD 网关通常不需要鉴权，为空时
-    请求不带 Authorization 头。供任务预检和 WebUI 在消耗 LLM、TTS 额度
-    前拦截缺失配置的任务。
+    API Key may be empty: fully local ComfyUI/SD gateways typically require no auth, and omitting it sends no Authorization header.
+    Used by task pre-checks and WebUI to intercept misconfigured tasks before consuming LLM and TTS credits.
     """
     app_config = config.app if app_config is None else app_config
     return bool(
@@ -1319,7 +1320,7 @@ def is_openai_image_enabled(app_config: dict | None = None) -> bool:
 
 def _openai_image_endpoint() -> tuple[str, str]:
     """
-    读取文生图端点与模型名，缺失时抛出带配置指引的错误。
+    Read text-to-image endpoint and model name; raise configuration guidance error when missing.
     """
     base_url = (
         str(config.app.get("openai_image_base_url", "") or "").strip().rstrip("/")
@@ -1340,11 +1341,11 @@ def _openai_image_endpoint() -> tuple[str, str]:
 
 def _openai_image_size(video_aspect: VideoAspect) -> str:
     """
-    解析请求的图片 size。
+    Resolve requested image size.
 
-    OpenAI 官方接口只接受模型规定的尺寸（如 1024x1536），直接传视频分辨率
-    （如 1080x1920）会返回 400。默认按画幅取兼容尺寸；``openai_image_size``
-    可显式配置覆盖，供支持任意分辨率的本地网关（如 SD WebUI）使用。
+    Official OpenAI endpoints only accept model-prescribed sizes (e.g. 1024x1536); passing video resolutions directly
+    (e.g. 1080x1920) returns 400. Defaults to compatible sizes by aspect ratio; ``openai_image_size`` can explicitly
+    override for local gateways (such as SD WebUI) supporting arbitrary resolutions.
     """
     configured = str(config.app.get("openai_image_size", "") or "").strip()
     if configured:
@@ -1354,18 +1355,18 @@ def _openai_image_size(video_aspect: VideoAspect) -> str:
 
 def _openai_image_prompt(search_term: str) -> str:
     """
-    把脚本关键词包装成最终提示词。
+    Wrap script keywords into the final prompt.
 
-    可选配置 ``openai_image_prompt_template`` 支持 ``{term}`` 占位符，
-    用于统一附加风格修饰（如画质、构图、镜头语言），提升图文匹配度：
+    Optional configuration ``openai_image_prompt_template`` supports a ``{term}`` placeholder
+    to append uniform style modifiers (quality, composition, camera language) for better text-visual match:
 
     .. code-block:: toml
 
         openai_image_prompt_template = "cinematic photo of {term}, photorealistic"
 
-    留空或不含占位符时退回关键词原文，行为与旧版本完全一致。占位符
-    替换失败（如模板误写了格式化语法）也回退原文，不让配置错误中断
-    整个生成任务。
+    When empty or lacking the placeholder, falls back to raw keyword matching legacy behavior.
+    Placeholder replacement failures (e.g. malformed template syntax) also fall back to raw keyword,
+    preventing configuration errors from aborting the generation task.
     """
     template = str(config.app.get("openai_image_prompt_template", "") or "").strip()
     if not template or "{term}" not in template:
@@ -1377,7 +1378,7 @@ def _openai_image_prompt(search_term: str) -> str:
 
 
 def _response_json_safely(response: Any) -> Any:
-    """读取响应 JSON；测试替身或异常响应解析失败时返回 None。"""
+    """Read response JSON safely; return None when test doubles or error responses fail to parse."""
     try:
         return response.json()
     except Exception:
@@ -1386,11 +1387,11 @@ def _response_json_safely(response: Any) -> Any:
 
 def _openai_image_response_message(body: Any) -> str:
     """
-    从 OpenAI 兼容响应中提取可读错误描述。
+    Extract a human-readable error description from an OpenAI-compatible response.
 
-    标准格式是 ``{"error": {"message": ...}}``，中转服务常退化为
-    ``{"message": ...}`` 或直接给一个字符串。都取不到时返回空串，由调用方
-    决定是否回退到响应正文。
+    Standard schema is ``{"error": {"message": ...}}``, but relay services often degrade to
+    ``{"message": ...}`` or a raw string. Returns an empty string if neither is found, letting callers
+    fall back to response text.
     """
     if not isinstance(body, dict):
         return str(body or "")[:300]
@@ -1403,7 +1404,7 @@ def _openai_image_response_message(body: Any) -> str:
 
 
 def _openai_image_http_failure(response: Any, status: int, api_key: str) -> str:
-    """把 HTTP 错误响应整理成一条脱敏后的日志可读描述。"""
+    """Format an HTTP error response into a redacted, log-friendly description."""
     message = _openai_image_response_message(_response_json_safely(response))
     if not message:
         message = str(getattr(response, "text", "") or "")[:300]
@@ -1415,10 +1416,10 @@ def _openai_image_download_bytes(
     api_key: str,
 ) -> tuple[bytes | None, str]:
     """
-    下载已生成图片的临时 URL。
+    Download a temporary URL for an already generated image.
 
-    图片已经按张计费，下载失败时优先重试原地址，而不是回退到重新生成，
-    避免为同一张图重复付费。全部重试失败时抛错，阻止外层购买下一张图。
+    The image is already billed per unit, so retrying the original URL on failure takes precedence over re-generation
+    to avoid double paying for the same asset. Raises on exhausted retries to stop outer loops from purchasing subsequent images.
     """
     failure_detail = "no download attempt was made"
     for attempt in range(1, OPENAI_IMAGE_MAX_DOWNLOAD_ATTEMPTS + 1):
@@ -1487,10 +1488,10 @@ def _parse_openai_image_response(
     api_key: str,
 ) -> tuple[bytes | None, str]:
     """
-    解析 /images/generations 响应，取回 url 或 b64_json 图片数据。
+    Parse /images/generations response, extracting url or b64_json image payload.
 
-    解析失败属于明确的业务拒绝（如内容策略）或异常响应格式，直接返回
-    错误描述，不做退避重试——重发同样的请求只会得到同样的结果。
+    Parsing failures represent explicit business rejection (such as content moderation) or malformed responses;
+    return error description directly without backoff retries — repeating identical requests produces identical rejections.
     """
     body = _response_json_safely(response)
     data = body.get("data") if isinstance(body, dict) else None
@@ -1525,19 +1526,18 @@ def _parse_openai_image_response(
 
 def _request_openai_image(endpoint: str, payload: dict) -> tuple[bytes | None, str]:
     """
-    调用 OpenAI 兼容 /images/generations 接口，带退避重试与 key 轮换。
+    Call OpenAI-compatible /images/generations endpoint with backoff retries and key rotation.
 
-    429/5xx 按临时故障退避重试；401/403 只有在配置了多个 key 时才重试
-    （借助 get_api_key 的轮换机制换 key）；其余 4xx 是明确拒绝，快速失败
-    交给上层跳过该关键词。
+    Retries 429/5xx as transient errors with backoff; 401/403 is retried only when multiple keys are configured
+    (leveraging get_api_key rotation); remaining 4xx errors are explicit rejections that fail fast,
+    allowing upper layers to skip the keyword.
 
-    计费安全：POST 的读超时与连接中断视为"未确认"状态——服务端可能已经
-    生成并扣费，只是响应没有返回，自动重新提交可能造成重复生成和重复
-    计费，因此抛出专用异常终止本地任务。只有连接阶段超时（ConnectTimeout，
-    请求确定没有送达服务端）才确认没有创建生成任务，可以安全重试。
+    Billing safety: POST read timeouts and connection resets are treated as "unconfirmed" state — the server may have
+    already generated and billed while the response was lost; auto-resubmitting risks duplicate generation and billing,
+    so a dedicated exception is raised to abort the local task. Only connection-phase timeouts (ConnectTimeout,
+    guaranteed not to have reached the server) confirm no task creation and can be safely retried.
 
-    API Key 允许为空：完全本地的 ComfyUI/SD 网关通常不需要鉴权，为空时
-    不发送 Authorization 头。
+    API Key may be empty: fully local ComfyUI/SD gateways typically need no authentication and omit Authorization headers when blank.
     """
     api_keys = config.app.get("openai_image_api_keys")
     if isinstance(api_keys, (list, tuple)):
@@ -1566,15 +1566,14 @@ def _request_openai_image(endpoint: str, payload: dict) -> tuple[bytes | None, s
                 allow_redirects=False,
             )
         except requests.exceptions.ConnectTimeout as e:
-            # 连接阶段超时：请求确定没有送达服务端，没有创建生成任务，
-            # 可以安全重试。
+            # Connect timeout: request definitely did not reach the server; no task was created, safe to retry.
             failure_detail = (
                 f"connect timeout: detail={_redact_request_error(e, api_key)}"
             )
             retryable = True
         except Exception as e:
-            # 读超时/连接中断等属于"未确认"状态：服务端可能已经受理并扣费，
-            # 自动重新提交或处理后续关键词都可能重复计费，必须终止本地任务。
+            # Read timeout/connection reset is "unconfirmed": server may have accepted and billed;
+            # auto-resubmitting or proceeding with subsequent keywords risks duplicate billing, so abort local task.
             raise OpenAIImageUnconfirmedError(
                 "unconfirmed image request (no retry to avoid double billing): "
                 f"{type(e).__name__}, detail={_redact_request_error(e, api_key)}"
@@ -1589,7 +1588,7 @@ def _request_openai_image(endpoint: str, payload: dict) -> tuple[bytes | None, s
                 )
             if status in OPENAI_IMAGE_KEY_ERROR_STATUS_CODES:
                 failure_detail = _openai_image_http_failure(response, status, api_key)
-                # 只有多 key 配置下，重试才可能轮换到可用 key。
+                # Only under multi-key configurations can retries rotate to a valid key.
                 retryable = len(configured_keys) > 1
             elif status in OPENAI_IMAGE_RETRYABLE_STATUS_CODES:
                 failure_detail = _openai_image_http_failure(response, status, api_key)
@@ -1625,11 +1624,11 @@ def _save_openai_image_file(
     save_dir: str,
 ) -> tuple[str, int, int]:
     """
-    把生成结果规范成 PNG 落盘，返回 (路径, 宽, 高)。
+    Normalize generated results to PNG on disk, returning (path, width, height).
 
-    统一转成 PNG 可以规避两类问题：中转服务返回 WebP/JPEG 却没有可靠
-    扩展名，以及携带异常元数据的图片让 MoviePy 解析失败（与 local 素材
-    的净化逻辑呼应，这里在落盘阶段就完成规范化）。
+    Standardizing to PNG avoids two failure classes: relay services returning WebP/JPEG without reliable extensions,
+    and images with malformed metadata causing MoviePy parsing failures (matching local material sanitization
+    by normalizing directly at persistence time).
     """
     if not save_dir:
         save_dir = utils.storage_dir("cache_images", create=True)
@@ -1640,10 +1639,10 @@ def _save_openai_image_file(
     if len(image_bytes) > OPENAI_IMAGE_MAX_BYTES:
         raise _OpenAIImageDecodeError("generated image exceeds the 25 MB limit")
 
-    # 图片解码失败可以降级为“跳过当前关键词”，但目录权限、磁盘空间和文件
-    # 写入失败必须继续抛出，否则按需生成循环会在本地无法保存文件时继续创建
-    # 后续付费任务。Image.open 只读取内存字节，因此这里的 OSError 属于格式
-    # 识别失败；image.load 的 OSError 则对应截断或损坏的图片数据。
+    # Image decoding failure can be demoted to "skip current keyword", but directory permissions, disk exhaustion,
+    # and file write failures must be re-raised; otherwise on-demand generation loops will keep creating paid tasks
+    # when local storage is unavailable. Image.open only inspects in-memory bytes so OSError here indicates format
+    # recognition failure; image.load OSError corresponds to truncated or corrupt image payloads.
     image = None
     try:
         with warnings.catch_warnings():
@@ -1667,8 +1666,8 @@ def _save_openai_image_file(
     with image:
         if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
             image = image.convert("RGB")
-        # save 不放进解码异常保护区：写入错误表示运行环境持续不可用，应立即
-        # 终止整个任务，避免后续关键词继续产生无法落盘的付费图片。
+        # Exclude save from decode exception guard: write errors indicate environment unavailability, so abort
+        # immediately to prevent subsequent keywords from creating unpersistable paid images.
         image.save(image_path, format="PNG")
         width, height = image.size
     return image_path, width, height
@@ -1681,12 +1680,11 @@ def generate_images_openai(
     save_dir: str = "",
 ) -> List[MaterialInfo]:
     """
-    用 OpenAI 兼容文生图接口为一个脚本关键词生成一张图片并保存到本地。
+    Generate an image for a script keyword via OpenAI-compatible text-to-image API and save locally.
 
-    与 generate_videos_wavespeed 保持同一签名和空列表失败约定。图片没有
-    原生时长，``duration`` 记录目标片段时长（秒），供按需下载流程核算
-    是否已经凑够配音时长。API 返回的实际尺寸可能与请求不一致，这里以
-    图片真实尺寸写入 rendition，不依赖请求参数。
+    Maintains the same signature and empty-list failure convention as generate_videos_wavespeed. Images have no
+    native duration, so ``duration`` stores the target segment duration (seconds) for on-demand download accounting.
+    API actual dimensions may differ from requested sizes, so true dimensions are stored in rendition rather than request parameters.
     """
     aspect = VideoAspect(video_aspect)
     clip_duration = max(int(minimum_duration), 1)
@@ -1713,9 +1711,9 @@ def generate_images_openai(
     try:
         image_path, width, height = _save_openai_image_file(image_bytes, save_dir)
     except _OpenAIImageDecodeError as e:
-        # 兼容层可能返回 200 但 body 不是图片（如伪装成 JSON 的 HTML 错误页、
-        # 网关的降级提示页）。图片无法解码属于"该次生成已失败"，按素材源
-        # 约定返回空列表让上层跳过该关键词继续，而不是让异常中断整个任务。
+        # Compatibility layers may return 200 with non-image bodies (e.g. HTML error pages disguised as JSON,
+        # or gateway fallback pages). Undecodable images represent a failed generation attempt; return empty list
+        # per source convention to skip this keyword rather than crashing the entire task.
         logger.error(
             "openai image response is not a decodable image, skipping term: "
             f"term={search_term!r}, error={type(e).__name__}, detail={e}"
@@ -1741,9 +1739,9 @@ def _render_openai_image_video(
     image_path: str, clip_duration: int, image_motion: ImageMotion = ImageMotion.zoom
 ) -> str:
     """
-    把生成的图片渲染成 mp4 片段，复用 local 素材的"图片 → 动态片段"管线。
+    Render a generated image into an mp4 clip, reusing the local material "image -> animated clip" pipeline.
 
-    渲染失败返回空字符串，由调用方停止后续付费请求。
+    Returns an empty string on render failure, signaling callers to stop subsequent paid requests.
     """
     try:
         return video.render_image_zoom_video(
@@ -1768,26 +1766,26 @@ def _download_videos_openai_image_on_demand(
     image_motion: ImageMotion = ImageMotion.zoom,
 ) -> List[str]:
     """
-    按脚本片段顺序逐张生成 OpenAI 兼容文生图素材，凑够所需总时长立即停止。
+    Sequentially generate OpenAI-compatible image assets per script segment, stopping immediately once required duration is reached.
 
-    与 WaveSpeed 按需生成同一付费安全语义：文生图按张计费，先全量生成再
-    挑选会为用不到的画面付费。每张图片生成后立即渲染成 mp4 片段并累计
-    有效时长（与库存流程一致，按片段时长封顶），累计达到所需配音时长后
-    不再发起新的付费请求。明确拒绝的单张图片可跳过；请求结果不明、付费
-    结果下载失败或本地渲染失败时必须终止任务，避免后续关键词再次计费。
+    Shares billing safety semantics with WaveSpeed on-demand generation: images are billed per unit; generating all candidates
+    upfront pays for unused visuals. Each image is immediately rendered into an mp4 clip with effective duration accumulated
+    (capped by segment duration, matching stock workflows); once required voice duration is met, no further paid requests are made.
+    Explicit single-image rejections may be skipped; indeterminate results, download failures, or render failures must terminate
+    the task to prevent subsequent keyword billing.
     """
-    # 直接调用素材服务也要在付费请求前校验，不能生成后才发现效果参数无效。
+    # Direct service calls must also validate before paid requests; cannot discover invalid motion params after generation.
     image_motion = ImageMotion(image_motion)
     if not material_directory:
-        # 生成图片按任务计费且不可复用，默认落在任务目录便于追溯。
+        # Generated images are billed per task and non-reusable; place in task dir by default for traceability.
         material_directory = utils.task_dir(task_id)
 
     video_paths: List[str] = []
     material_sources: list[dict[str, Any]] = []
     total_duration = 0.0
 
-    # 非正数配音时长会让"累计达到所需时长"的判断失去意义，直接空手返回，
-    # 避免为不可能凑够的任务持续按张付费（与 Seedance 预检语义一致）。
+    # Non-positive audio duration breaks the completion check; return empty immediately to avoid endless
+    # per-image billing for uncompletable tasks (aligned with Seedance preflight semantics).
     try:
         required_duration = float(audio_duration)
     except (TypeError, ValueError):
@@ -1825,16 +1823,16 @@ def _download_videos_openai_image_on_demand(
             try:
                 material_sources.append(_material_source_record(item, video_file))
             except Exception as source_error:
-                # 与库存源一致：来源记录异常不能把已经付费生成并成功渲染的
-                # 素材当作失败，更不能阻断视频生成。
+                # Consistent with stock sources: source record errors must not treat successfully paid and rendered
+                # assets as failures, much less block video synthesis.
                 logger.warning(
                     "failed to prepare generated material source record: "
                     f"provider=openai_image, "
                     f"error={type(source_error).__name__}, detail={source_error}"
                 )
             total_duration += min(max_clip_duration, item.duration)
-            # 与 WaveSpeed 相同用 >= 判断：恰好凑够时再生成一张就多付一次费。
-            # 内外两处判断必须保持同一语义。
+            # Uses >= like WaveSpeed: generating another when exactly meeting duration incurs extra cost.
+            # Inner and outer checks must maintain identical semantics.
             if total_duration >= required_duration:
                 break
         if total_duration >= required_duration:
@@ -1858,11 +1856,11 @@ def _search_videos_with_cache(
     video_aspect: VideoAspect,
 ) -> List[MaterialInfo]:
     """
-    统一处理三个在线素材源的 24 小时搜索缓存。
+    Handle 24-hour search cache uniformly for all three online stock sources.
 
-    缓存只包裹搜索 API，不改变后续视频下载与去重逻辑。远端返回空列表时不写
-    缓存，因为现有 provider 接口使用空列表同时表示“没有结果”和“请求失败”；
-    在两者尚未拆分为明确结果类型前，宁可下次重试，也不能把临时故障缓存一天。
+    Caching wraps search APIs only, leaving downstream download and deduplication logic unchanged. Empty remote
+    results are never cached because current provider interfaces use empty lists for both "no hits" and "request failure";
+    until split into explicit result types, retrying next time is safer than caching a transient outage for a day.
     """
     cache_args = {
         "provider": provider,
@@ -1875,8 +1873,8 @@ def _search_videos_with_cache(
         try:
             return material_cache.load_material_search_cache(**cache_args)
         except Exception as exc:
-            # 缓存是可选优化，任何缓存实现异常都必须按未命中处理，不能阻断
-            # Pexels、Pixabay 或 Coverr 的正常远端搜索。
+            # Cache is an optional optimization; any cache exception must be treated as a miss without blocking
+            # standard remote searches on Pexels, Pixabay, or Coverr.
             logger.warning(
                 "material search cache read failed, continue with remote search: "
                 f"provider={provider}, error={type(exc).__name__}, detail={exc}"
@@ -1894,8 +1892,8 @@ def _search_videos_with_cache(
         )
         ignored_count = len(cached_items) - len(filtered_cached_items)
         if ignored_count:
-            # 旧版本缓存可能混入其它方向的素材。即使仍有少量可用条目，也要刷新
-            # 完整候选集，否则在缓存有效期内会反复使用同一批少量视频。
+            # Stale caches might include mismatched orientations. Refresh the full candidate set even if few items remain,
+            # otherwise the cache lifetime repeatedly reuses the same depleted pool.
             return None, ignored_count
         return filtered_cached_items, 0
 
@@ -1911,8 +1909,8 @@ def _search_videos_with_cache(
 
     cache_lock = material_cache.get_material_search_cache_lock(**cache_args)
     with cache_lock:
-        # 等待相同搜索条件的线程完成后再次读取，避免多个 API 任务在首次缓存
-        # 未命中时同时请求远端，降低第三方接口限流和风控触发概率。
+        # Wait for threads with identical search terms to complete before re-reading, preventing concurrent remote requests
+        # on initial cache misses and mitigating rate-limiting/anti-abuse triggers.
         cached_items, _ = load_matching_cache()
         if cached_items is not None:
             return cached_items
@@ -1922,9 +1920,9 @@ def _search_videos_with_cache(
             minimum_duration=minimum_duration,
             video_aspect=video_aspect,
         )
-        # Provider 正常会写入当前关键词，但测试替身、第三方扩展或旧实现可能
-        # 遗漏或携带错误值。缓存读取会根据缓存键恢复该字段，因此远端结果也在
-        # 同一入口校正，保证首次搜索与缓存命中的任务来源记录保持一致。
+        # Providers normally write the current keyword, but mocks, third-party extensions, or legacy code may omit or corrupt it.
+        # Cache reading restores this field from the cache key, so remote results are calibrated at the same entry point
+        # to guarantee identical provenance between fresh searches and cache hits.
         for item in items:
             if isinstance(item.source_info, dict):
                 item.source_info = dict(item.source_info)
@@ -1949,7 +1947,7 @@ def _search_terms_in_parallel(
     minimum_duration: int,
     video_aspect: VideoAspect,
 ) -> list[tuple[str, List[MaterialInfo]]]:
-    """并行搜索关键词，失败的关键词返回空结果，不阻断其它素材。"""
+    """Search keywords in parallel; failed keywords return empty results without blocking other materials."""
     if not search_terms:
         return []
 
@@ -2012,16 +2010,16 @@ def _report_material_downloaded(
     on_downloaded: Callable[[MaterialInfo], None] | None,
 ) -> None:
     """
-    记录一个素材已下载完成，并通知调用方更新进度。
+    Record material download completion and notify callers to update progress.
 
-    始终在发起下载的线程里调用，逐文件日志和进度更新不依赖下载并发数。
+    Always invoked within the downloading thread; per-file logging and progress updates operate independently of concurrency levels.
     """
     description = os.path.basename(saved_video_path)
     try:
         size_mb = os.path.getsize(saved_video_path) / _BYTES_PER_MEGABYTE
         description += f" ({size_mb:.1f} MB)"
     except OSError:
-        # 文件大小只是辅助信息，读不到时不影响下载结果。
+        # File size is auxiliary information; inability to read it does not invalidate the download.
         pass
     logger.info(f"downloaded material {position}/{total}: {description}")
     if on_downloaded is None:
@@ -2029,8 +2027,8 @@ def _report_material_downloaded(
     try:
         on_downloaded(item)
     except Exception as exc:
-        # 进度只是展示信息。回调失败（例如状态后端暂时不可用）不能让已经
-        # 成功下载的素材作废，更不能中断整个任务。
+        # Progress is display information only. Callback failures (e.g. temporary backend unavailability) must never
+        # invalidate downloaded materials or abort the task.
         logger.warning(
             "failed to report material download progress: "
             f"error={type(exc).__name__}, detail={exc}"
@@ -2043,10 +2041,10 @@ def _covered_duration_reporter(
     max_clip_duration: int,
 ) -> Callable[[MaterialInfo], None] | None:
     """
-    生成逐素材回调：把“已覆盖的配音时长”换算成 0~1 的下载进度。
+    Generate per-material callback: converts covered audio duration into a 0.0 - 1.0 download progress ratio.
 
-    口径与下载循环的停止条件一致——每个素材最多贡献一个片段时长，覆盖到
-    所需时长即完成，因此超出部分封顶为 1.0。没有进度回调时返回 None。
+    Matches download loop termination criteria — each material contributes at most one segment duration; once required duration
+    is covered, progress reaches 1.0. Returns None if no progress callback is provided.
     """
     if progress_callback is None:
         return None
@@ -2069,10 +2067,10 @@ def _download_materials_in_parallel(
     on_downloaded: Callable[[MaterialInfo], None] | None = None,
 ) -> list[tuple[str, MaterialInfo, str]]:
     """
-    并行下载一轮素材，保留调用方传入的候选顺序。
+    Download a round of materials in parallel, preserving the caller-provided candidate order.
 
-    每个素材下载成功后记录一条日志并调用 ``on_downloaded``，调用方据此更新
-    任务进度。回调和日志都发生在调用本函数的线程里。
+    Logs a message and invokes ``on_downloaded`` upon each successful download for caller progress updates.
+    Callbacks and logging both occur in the invoking thread.
     """
     if not materials:
         return []
@@ -2142,11 +2140,11 @@ def _select_materials_until_duration(
     current_duration: float = 0.0,
 ) -> List[tuple[str, MaterialInfo]]:
     """
-    按候选顺序选取一轮素材，避免并发时下载已经超过配音时长的候选。
+    Select a round of materials in candidate order, preventing concurrent downloads exceeding required audio duration.
 
-    返回 ``materials`` 的前缀子集：从第一个候选开始累加，累加时长首次
-    超过配音时长时停止（含超出的那一个）。调用方据此前缀属性判断哪些
-    候选在本轮被实际尝试。
+    Returns a prefix subset of ``materials``: accumulates from the first candidate, stopping once cumulative duration
+    first meets or exceeds required duration (including the boundary item). Callers use this prefix to determine
+    which candidates were actually attempted in this round.
     """
     selected = []
     total_duration = current_duration
@@ -2171,11 +2169,10 @@ def download_videos(
     image_motion: ImageMotion = ImageMotion.zoom,
 ) -> List[str]:
     """
-    搜索并下载覆盖配音时长所需的素材，返回本地文件路径。
+    Search and download materials required to cover audio duration, returning local file paths.
 
-    ``progress_callback`` 可选：库存素材（Pexels、Pixabay、Coverr）每下完一个
-    文件就以 0~1 的完成比例调用一次，供任务层推进进度条。按需生成的付费
-    素材源不报告下载进度。
+    ``progress_callback`` is optional: stock materials (Pexels, Pixabay, Coverr) trigger it with a 0.0-1.0 ratio
+    after each file to advance task progress bars. On-demand paid generation sources do not report download progress.
     """
     provider = "pexels"
     remote_search_videos = search_videos_pexels
@@ -2206,10 +2203,10 @@ def download_videos(
         material_directory = ""
 
     if source == "wavespeed":
-        # AI 生成按条计费，不能沿用库存源"先为全部关键词取回候选、再挑选"
-        # 的流程，否则会为用不到的片段付费。生成源改为逐段按需生成，凑够
-        # 所需时长立即停止；也不参与 24 小时搜索缓存——产物 URL 是会过期
-        # 的签名地址，且复用缓存会让不同任务反复得到同一段生成视频。
+        # AI generation is billed per call, so it cannot follow the stock workflow of fetching candidates for all keywords
+        # before selecting; doing so incurs costs for unused segments. Generation sources operate on-demand per segment,
+        # stopping once target duration is met; they bypass the 24-hour search cache because asset URLs are expiring signed links
+        # and cache reuse would return identical generated videos across tasks.
         return _download_videos_wavespeed_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2219,8 +2216,8 @@ def download_videos(
             material_directory=material_directory,
         )
     if source == "volcengine_seedance":
-        # 与 WaveSpeed 相同，方舟官方接口会创建异步付费任务。必须按需逐段
-        # 生成，只购买当前配音时长真正需要的素材。
+        # Like WaveSpeed, the Volcano Ark official API creates async paid tasks. It must generate on-demand segment by segment,
+        # purchasing only the assets strictly required for current audio duration.
         return _download_videos_seedance_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2230,9 +2227,8 @@ def download_videos(
             material_directory=material_directory,
         )
     if source == "ofox":
-        # 与 WaveSpeed/方舟相同的按需付费语义：OFox 网关的 /v1/videos 会创建
-        # 异步付费任务，必须逐段生成、凑够所需时长立即停止；产物地址是会过
-        # 期的临时直链，也不参与 24 小时搜索缓存。
+        # Same on-demand billing semantics as WaveSpeed/Ark: OFox /v1/videos creates async paid tasks and must generate
+        # segment-by-segment, stopping once duration is satisfied; asset URLs are expiring temporary direct links bypassing 24h search cache.
         return _download_videos_ofox_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2242,8 +2238,8 @@ def download_videos(
             material_directory=material_directory,
         )
     if source == "muapi":
-        # MuAPI 的模型端点会创建异步付费任务。逐段提交并在覆盖配音时长后
-        # 停止，避免把未使用的脚本关键词也发送到远端。
+        # MuAPI model endpoints create async paid tasks. Submit segment-by-segment and stop once audio duration is covered,
+        # avoiding sending unused script keywords to the remote service.
         return _download_videos_muapi_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2253,9 +2249,9 @@ def download_videos(
             material_directory=material_directory,
         )
     if source == "metaso_minimax":
-        # 秘塔 MiniMax 同样按远端异步任务计费。它与火山方舟的请求体相似，
-        # 但任务查询路径和响应结构不同，因此只共享本地按需生成语义，不复用
-        # 供应商客户端，避免协议差异渗入素材编排层。
+        # MetaSO MiniMax also bills per remote async task. Its request body resembles Volcano Ark, but task query routes
+        # and response schemas differ, so it shares local on-demand semantics without reusing provider clients,
+        # preventing protocol variations from leaking into the orchestration layer.
         return _download_videos_metaso_minimax_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2265,9 +2261,8 @@ def download_videos(
             material_directory=material_directory,
         )
     if source == "openai_image":
-        # 与 WaveSpeed 相同的按需付费语义：文生图按张计费，逐段生成、凑够
-        # 所需时长立即停止。生成结果是一次性的本地图片文件，也不参与 24
-        # 小时搜索缓存——缓存会让不同任务反复拿到同一张图。
+        # Same on-demand billing semantics as WaveSpeed: text-to-image bills per unit, generating segment-by-segment and stopping
+        # once duration is satisfied. Results are single-use local image files bypassing 24h search cache to avoid different tasks reusing identical images.
         return _download_videos_openai_image_on_demand(
             task_id=task_id,
             search_terms=search_terms,
@@ -2320,9 +2315,9 @@ def download_videos(
         progress_callback, audio_duration, max_clip_duration
     )
     pending_items = list(valid_video_items)
-    # 默认/随机路径同样受素材并发配置控制：按串行逻辑的停止条件预选每轮
-    # 候选（顺序累加、首次超过配音时长即停）。全部下载成功时，每轮下载集合
-    # 与串行逻辑完全一致；下载失败的候选在下一轮用后续候选补足。
+    # Default/random paths are also governed by material concurrency config: pre-select candidates per round using serial
+    # stop criteria (sequential accumulation, stopping when audio duration is first reached). On full success, downloaded sets
+    # match serial logic exactly; failed candidates are supplemented by subsequent ones in the next round.
     while pending_items and total_duration <= audio_duration:
         batch = []
         projected_duration = total_duration
@@ -2353,8 +2348,8 @@ def download_videos(
                             _material_source_record(item, saved_video_path)
                         )
                     except Exception as source_error:
-                        # 来源记录异常不能把已经成功下载的素材视为下载失败，更不能
-                        # 阻断视频生成；保留供应商和异常类型用于后续定位。
+                        # Source record exceptions must not mark successfully downloaded assets as failures, much less
+                        # block video synthesis; retain provider and exception type for troubleshooting.
                         logger.warning(
                             "failed to prepare material source record: "
                             f"provider={item.provider}, "
@@ -2388,13 +2383,12 @@ def _download_videos_wavespeed_on_demand(
     material_directory: str,
 ) -> List[str]:
     """
-    按脚本片段顺序逐段生成 WaveSpeed 素材，凑够所需总时长立即停止。
+    Sequentially generate WaveSpeed materials per script segment, stopping once required duration is met.
 
-    每个关键词天然对应一个脚本片段，生成即付费：先全量生成再挑选会为
-    用不到的片段付费。这里每生成一段就立刻下载并累计有效时长（与库存
-    流程一致，按片段时长封顶），累计覆盖所需配音时长后不再触发新的生成
-    请求。远端明确失败的片段可跳过；状态不明或下载失败的付费任务必须
-    保留 ID 并终止本地任务。
+    Each keyword corresponds naturally to a script segment, billed upon generation: generating everything upfront pays for
+    unused clips. Here each clip is immediately downloaded and accumulated towards effective duration (capped by segment duration,
+    matching stock logic); once target audio duration is covered, no further generation requests are sent. Explicitly failed segments
+    may be skipped; indeterminate or download-failed paid tasks must retain their IDs and abort the local task.
     """
     video_paths: List[str] = []
     material_sources: list[dict[str, Any]] = []
@@ -2429,9 +2423,9 @@ def _download_videos_wavespeed_on_demand(
                 video_aspect=video_aspect,
             )
         except WaveSpeedUnconfirmedTaskError as e:
-            # 已提交的付费任务状态不明：远端可能仍在运行或已经完成并计费。
-            # 继续为后续关键词下单会造成重复生成和重复扣费，因此就地停止，
-            # 把 prediction id 交给任务层写入失败状态，供用户找回产物。
+            # Submitted paid task is in indeterminate state: remote may still be running or completed and billed.
+            # Continuing to order subsequent keywords causes redundant generation and double billing; halt here and
+            # pass prediction id to task layer for failure reporting, allowing users to retrieve outputs.
             logger.error(
                 "stop submitting new wavespeed tasks, the last submitted task "
                 f"is unconfirmed: prediction_id={e.prediction_id or 'unknown'}, "
@@ -2459,16 +2453,16 @@ def _download_videos_wavespeed_on_demand(
             try:
                 material_sources.append(_material_source_record(item, saved_video_path))
             except Exception as source_error:
-                # 与库存源一致：来源记录异常不能把已经付费生成并成功下载的
-                # 素材当作失败，更不能阻断视频生成。
+                # Consistent with stock sources: source record errors must not treat successfully paid and downloaded
+                # materials as failures, much less block video synthesis.
                 logger.warning(
                     "failed to prepare material source record: "
                     f"provider={item.provider}, "
                     f"error={type(source_error).__name__}, detail={source_error}"
                 )
             total_duration += min(clip_duration, item.duration)
-            # 用 >= 判断:累计时长恰好等于所需时长时已经够用,再生成会
-            # 多付一次费用。内外两处判断必须保持同一语义。
+            # Uses >= comparison: when cumulative duration reaches required duration it is sufficient; generating further
+            # incurs unnecessary cost. Inner and outer checks must maintain identical semantics.
             if total_duration >= required_duration:
                 break
         if total_duration >= required_duration:
@@ -2492,13 +2486,13 @@ def _download_videos_seedance_on_demand(
     max_clip_duration: int,
     material_directory: str,
 ) -> List[str]:
-    """顺序生成方舟 Seedance 素材，覆盖配音时长后立即停止付费下单。"""
+    """Sequentially generate Volcano Ark Seedance materials, stopping paid ordering immediately once audio duration is covered."""
     video_paths: List[str] = []
     material_sources: list[dict[str, Any]] = []
 
-    # 付费生成循环必须先验证控制循环次数的两个时长。NaN/Infinity 会让
-    # ``total_duration >= audio_duration`` 永远不成立，而非正片段时长会让
-    # 累计值无法增长，两者都可能为全部关键词创建无用的付费任务。
+    # Paid generation loops must validate the two duration metrics controlling iterations first. NaN/Infinity prevents
+    # ``total_duration >= audio_duration`` from ever triggering, and non-positive segment duration prevents accumulation growth;
+    # both risk generating useless paid tasks for every keyword.
     try:
         required_duration = float(audio_duration)
     except (TypeError, ValueError) as exc:
@@ -2537,8 +2531,8 @@ def _download_videos_seedance_on_demand(
                 video_aspect=video_aspect,
             )
         except volcengine_seedance.VolcEngineSeedanceUnconfirmedTaskError as exc:
-            # 远端付费任务仍可能成功。立即停止继续下单，并保留任务 ID，方便
-            # 用户随后在方舟控制台确认或找回结果。
+            # Remote paid task may still succeed. Cease further ordering immediately and preserve task ID so users
+            # can confirm or retrieve results from the Volcano Ark console.
             logger.error(
                 "stop submitting new Seedance tasks because the last paid task "
                 f"is unconfirmed: task_id={exc.task_id or 'unknown'}, detail={exc}"
@@ -2555,9 +2549,8 @@ def _download_videos_seedance_on_demand(
                 item.url, material_directory, "volcengine_seedance"
             )
             if not saved_video_path:
-                # 远端任务已完成并产生费用，本地下载失败时必须把远端任务 ID
-                # 带回任务状态，便于用户去方舟控制台找回结果。这里直接抛出
-                # 专用错误，同时阻止后续关键词继续创建新的付费任务。
+                # Remote task completed and incurred charges; if local download fails, propagate the remote task ID
+                # back to the task state so users can retrieve it via Ark console. Raise dedicated error to prevent subsequent keyword orders.
                 source_info = (
                     item.source_info if isinstance(item.source_info, dict) else {}
                 )
@@ -2605,13 +2598,13 @@ def _download_videos_ofox_on_demand(
     max_clip_duration: int,
     material_directory: str,
 ) -> List[str]:
-    """顺序生成 OFox 素材，覆盖配音时长后立即停止付费下单。"""
+    """Sequentially generate OFox materials, stopping paid ordering immediately once audio duration is covered."""
     video_paths: List[str] = []
     material_sources: list[dict[str, Any]] = []
 
-    # 付费生成循环必须先验证控制循环次数的两个时长。NaN/Infinity 会让
-    # ``total_duration >= audio_duration`` 永远不成立，而非正片段时长会让
-    # 累计值无法增长，两者都可能为全部关键词创建无用的付费任务。
+    # Paid generation loops must validate the two duration metrics controlling iterations first. NaN/Infinity prevents
+    # ``total_duration >= audio_duration`` from ever triggering, and non-positive segment duration prevents accumulation growth;
+    # both risk generating useless paid tasks for every keyword.
     try:
         required_duration = float(audio_duration)
     except (TypeError, ValueError) as exc:
@@ -2642,8 +2635,8 @@ def _download_videos_ofox_on_demand(
                 video_aspect=video_aspect,
             )
         except ofox.OFoxUnconfirmedTaskError as exc:
-            # 远端付费任务仍可能成功。立即停止继续下单，并保留任务 ID，方便
-            # 用户随后在 OFox 控制台确认或找回结果。
+            # Remote paid task may still succeed. Cease further ordering immediately and preserve task ID so users
+            # can confirm or retrieve results from the OFox console.
             logger.error(
                 "stop submitting new OFox tasks because the last paid task "
                 f"is unconfirmed: task_id={exc.task_id or 'unknown'}, detail={exc}"
@@ -2655,16 +2648,15 @@ def _download_videos_ofox_on_demand(
             _persist_material_sources(task_id, material_sources)
             raise
 
-        # 单个关键词被远端明确判失败（如触发内容审核）时返回空列表：任务已
-        # 结束、无计费悬念，跳过该片段继续生成后续关键词。
+        # When a single keyword explicitly fails remotely (e.g. content moderation), return empty list: task is finished
+        # with no billing ambiguity; skip this segment and proceed with subsequent keywords.
         for item in video_items:
             saved_video_path = _save_generated_video_with_retry(
                 item.url, material_directory, "ofox"
             )
             if not saved_video_path:
-                # 远端任务已完成并产生费用，本地下载失败时必须把远端任务 ID
-                # 带回任务状态，便于用户去 OFox 控制台找回结果。这里直接抛出
-                # 专用错误，同时阻止后续关键词继续创建新的付费任务。
+                # Remote task completed and incurred charges; if local download fails, propagate the remote task ID
+                # back to task state for console recovery. Raise dedicated error to prevent subsequent keyword orders.
                 source_info = (
                     item.source_info if isinstance(item.source_info, dict) else {}
                 )
@@ -2830,13 +2822,13 @@ def _download_videos_metaso_minimax_on_demand(
     max_clip_duration: int,
     material_directory: str,
 ) -> List[str]:
-    """顺序生成秘塔 MiniMax 素材，覆盖配音时长后立即停止付费下单。"""
+    """Sequentially generate MetaSO MiniMax materials, stopping paid ordering immediately once audio duration is covered."""
     video_paths: List[str] = []
     material_sources: list[dict[str, Any]] = []
 
-    # 远端最短生成 4 秒，但本地仍按用户片段时长裁剪和累计。提前验证循环
-    # 控制参数，避免 NaN、Infinity 或非正数让停止条件永远无法满足，进而把
-    # 所有关键词都提交为付费任务。
+    # Remote generation produces at least 4 seconds, but local pipeline clips and accumulates based on user segment duration.
+    # Validate loop control parameters beforehand to prevent NaN, Infinity, or non-positive values from keeping termination
+    # unreachable and submitting paid tasks for all keywords.
     try:
         required_duration = float(audio_duration)
     except (TypeError, ValueError) as exc:
@@ -2875,8 +2867,8 @@ def _download_videos_metaso_minimax_on_demand(
                 video_aspect=video_aspect,
             )
         except metaso_minimax.MetasoMiniMaxUnconfirmedTaskError as exc:
-            # 请求或轮询状态不明时，远端任务仍可能成功并计费。立即停止整个
-            # 生成循环，防止后续关键词继续下单，并把任务 ID 交给任务服务保存。
+            # When request or polling status is unknown, remote tasks may still succeed and be billed. Immediately halt the entire
+            # generation loop to prevent further keyword orders, passing task ID to task service for persistence.
             logger.error(
                 "stop submitting new Metaso MiniMax tasks because the last paid "
                 f"task is unconfirmed: task_id={exc.task_id or 'unknown'}, "
@@ -2894,8 +2886,8 @@ def _download_videos_metaso_minimax_on_demand(
                 item.url, material_directory, "metaso_minimax"
             )
             if not saved_video_path:
-                # 生成成功已产生费用，下载失败时不能继续创建新任务来替代。
-                # 抛出携带远端 ID 的专用错误，供任务状态和人工恢复使用。
+                # Generation succeeded and incurred charges; if download fails, do not create replacement tasks.
+                # Raise dedicated error carrying remote ID for task status and manual recovery.
                 source_info = (
                     item.source_info if isinstance(item.source_info, dict) else {}
                 )
@@ -2917,8 +2909,8 @@ def _download_videos_metaso_minimax_on_demand(
                     f"detail={source_error}"
                 )
 
-            # 本地成片只使用用户选择的片段长度；即使 H3 因最短时长约束生成
-            # 了更长素材，也不能把未使用部分计入覆盖时长并少生成必要画面。
+            # Local final cut only uses the user-selected segment length; even if H3 produces longer footage due to minimum
+            # duration constraints, unused duration must not count towards covered duration to avoid starving necessary visuals.
             total_duration += min(clip_duration, item.duration)
             if total_duration >= required_duration:
                 break
@@ -2946,13 +2938,13 @@ def _download_videos_by_script_order(
     progress_callback: Callable[[float], None] | None = None,
 ) -> List[str]:
     """
-    按脚本文案顺序下载素材。
+    Download materials following script narrative order.
 
-    默认下载逻辑会把所有关键词的候选素材合并成一个大列表；如果第一个
-    关键词返回很多结果，最终下载时可能一直消耗这个关键词的素材，后续
-    脚本主题就排不上时间线。这里按关键词分组后轮询下载：
-    第 1 轮取每个关键词的第 1 个候选，第 2 轮取每个关键词的第 2 个候选。
-    这样在不重写视频合成引擎的前提下，尽量保证素材顺序贴近文案顺序。
+    Default download logic concatenates candidate materials from all keywords into one large list; if the first keyword
+    returns many results, downloading may exhaust that keyword's materials while later script themes miss the timeline.
+    Here we group candidates by keyword and download round-robin:
+    Round 1 takes the 1st candidate from each keyword, round 2 takes the 2nd candidate, and so forth.
+    This keeps material progression aligned with narration flow without rewriting the video synthesis engine.
     """
     logger.info("downloading videos with script-order material matching")
     candidate_groups = []
@@ -2987,8 +2979,8 @@ def _download_videos_by_script_order(
     on_downloaded = _covered_duration_reporter(
         progress_callback, audio_duration, max_clip_duration
     )
-    # 每个关键词独立推进候选下标：只有本轮真正被选中下载的候选才推进，
-    # 未被选中的候选保留到下一轮，避免被整轮统一的下标跳过。
+    # Advance candidate indices independently per keyword: only candidates actually chosen for download in this round advance;
+    # unchosen candidates remain for the next round, preventing them from being skipped by a global round index.
     next_candidate_indices = [0] * len(candidate_groups)
     while candidate_groups and total_duration <= audio_duration:
         round_materials = [
@@ -3013,9 +3005,9 @@ def _download_videos_by_script_order(
             audio_duration=audio_duration,
             current_duration=total_duration,
         )
-        # _select_materials_until_duration 返回候选列表的前缀子集，
-        # 因此前 len(selected_materials) 个即本轮实际尝试下载的候选，
-        # 只推进这些候选所在分组的下标。
+        # _select_materials_until_duration returns a prefix subset of candidate materials;
+        # thus the first len(selected_materials) items represent candidates actually attempted this round,
+        # and only the indices of groups corresponding to these candidates are advanced.
         for group_position, _, _ in round_materials[: len(selected_materials)]:
             next_candidate_indices[group_position] += 1
 

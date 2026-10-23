@@ -8,11 +8,11 @@ from app import asgi
 
 
 class TestASGICORS(unittest.TestCase):
-    """验证浏览器跨域默认值和显式兼容配置，避免重新引入开放 CORS。"""
+    """Verify browser cross-origin defaults and explicit compatibility configurations to avoid reintroducing open CORS."""
 
     @staticmethod
     def _create_client(allowed_origins: list[str]) -> TestClient:
-        """构造只包含探针路由的应用，隔离业务任务和外部 API 调用。"""
+        """Construct an application containing only probe routes to isolate business tasks and external API calls."""
 
         application = FastAPI()
 
@@ -24,7 +24,7 @@ class TestASGICORS(unittest.TestCase):
         return TestClient(application)
 
     def test_origin_parser_trims_values_and_ignores_empty_items(self):
-        """环境变量中的空格和尾随逗号不应破坏合法来源匹配。"""
+        """Whitespace and trailing commas in environment variables should not break valid origin matching."""
 
         origins = asgi.parse_cors_allowed_origins(
             " https://a.example,https://b.example, ,"
@@ -38,7 +38,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertEqual(asgi.parse_cors_allowed_origins(None), [])
 
     def test_origin_parser_normalizes_every_item_to_origin_header_shape(self):
-        """配置项必须折叠成 Origin 请求头的规范形式，否则白名单静默失效。"""
+        """Config items must be normalized to canonical Origin request header form, otherwise the allowlist silently fails."""
 
         origins = asgi.parse_cors_allowed_origins(
             "https://frontend.example/,"
@@ -49,15 +49,15 @@ class TestASGICORS(unittest.TestCase):
             "*"
         )
 
-        # 尾斜杠、大小写差异和重复项都归一到同一个来源；缺少 scheme 的主机名、
-        # 非 http/https 的 scheme 都不可能出现在 Origin 头里，因此被丢弃。
+        # Trailing slashes, case differences, and duplicates are normalized to the same origin; hostnames without scheme
+        # and non-http/https schemes can never appear in an Origin header and are thus discarded.
         self.assertEqual(
             origins,
             ["https://frontend.example", "https://admin.example", "*"],
         )
 
     def test_malformed_entry_is_dropped_without_losing_valid_origins(self):
-        """畸形条目只能丢弃自身并留下告警，不得中断整份配置的解析。"""
+        """Malformed entries must only drop themselves and log a warning without interrupting the parsing of valid origins."""
 
         with patch.object(asgi, "logger") as mocked_logger:
             origins = asgi.parse_cors_allowed_origins(
@@ -68,8 +68,8 @@ class TestASGICORS(unittest.TestCase):
                 "https://second.example"
             )
 
-        # 畸形 IPv6 字面量和非法端口都不可能出现在 Origin 头里。它们的解析异常
-        # 必须在这里收敛：本函数由模块导入期调用，异常冒出去等于整条 API 起不来。
+        # Malformed IPv6 literals and invalid ports can never appear in an Origin header. Parsing exceptions
+        # must be caught here: this function is called during module import; uncaught exceptions would prevent API startup.
         self.assertEqual(
             origins,
             ["https://valid.example", "https://second.example"],
@@ -77,7 +77,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertEqual(mocked_logger.warning.call_count, 3)
 
     def test_explicit_default_port_is_folded_into_the_origin(self):
-        """显式写出默认端口的写法必须折叠成浏览器实际发送的 Origin。"""
+        """Explicitly written default ports must be folded into the actual Origin sent by browsers."""
 
         origins = asgi.parse_cors_allowed_origins(
             "https://secure.example:443,"
@@ -87,8 +87,8 @@ class TestASGICORS(unittest.TestCase):
             "https://[::1]:3000"
         )
 
-        # :443 / :0443 / :80 都等于协议的默认端口，浏览器序列化 Origin 时会省略；
-        # 非默认端口必须保留，IPv6 字面量则要连方括号一起保留。
+        # :443 / :0443 / :80 equal protocol default ports, which browsers omit when serializing Origin;
+        # non-default ports must be retained, and IPv6 literals retained with square brackets.
         self.assertEqual(
             origins,
             [
@@ -101,7 +101,7 @@ class TestASGICORS(unittest.TestCase):
         )
 
     def test_address_bar_style_origin_admits_the_trusted_frontend(self):
-        """从地址栏复制的带尾斜杠写法必须与规范写法得到同一个前端访问结果。"""
+        """Trailing-slash origins copied from address bars must yield the same frontend access result as canonical origins."""
 
         trusted_origin = "https://frontend.example"
         client = self._create_client(
@@ -127,7 +127,7 @@ class TestASGICORS(unittest.TestCase):
         )
 
     def test_default_port_configuration_admits_the_trusted_frontend(self):
-        """配置里写了默认端口时，浏览器不带端口的 Origin 仍必须被放行。"""
+        """When default port is configured, browser origins without explicit ports must still be admitted."""
 
         trusted_origin = "https://frontend.example"
         client = self._create_client(
@@ -153,7 +153,7 @@ class TestASGICORS(unittest.TestCase):
         )
 
     def test_empty_configuration_keeps_browser_same_origin_policy(self):
-        """未配置白名单时，第三方网页不能读取响应或通过预检。"""
+        """When allowlist is unconfigured, third-party web pages cannot read responses or pass preflight."""
 
         client = self._create_client([])
         origin = "https://evil.attacker.example"
@@ -174,7 +174,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertNotIn("access-control-allow-origin", preflight.headers)
 
     def test_same_origin_and_server_clients_remain_compatible(self):
-        """同源浏览器和不发送 Origin 的服务端客户端必须继续正常访问。"""
+        """Same-origin browsers and server-side clients that do not send Origin must continue accessing normally."""
 
         client = self._create_client([])
 
@@ -188,7 +188,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertEqual(server_client.status_code, 200)
 
     def test_explicit_origin_allows_only_the_trusted_frontend(self):
-        """独立网页前端显式配置后可以访问，其他来源仍必须被拒绝。"""
+        """After explicit configuration, independent web frontend can access while other origins are rejected."""
 
         trusted_origin = "https://frontend.example"
         untrusted_origin = "https://evil.attacker.example"
@@ -218,7 +218,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertEqual(untrusted_preflight.status_code, 400)
 
     def test_trusted_origin_can_request_private_network_access(self):
-        """精确白名单应支持远程网页访问本机或局域网 API 的额外预检。"""
+        """Exact allowlist should support additional preflight for remote web pages accessing localhost or LAN APIs."""
 
         trusted_origin = "https://frontend.example"
         client = self._create_client([trusted_origin])
@@ -239,7 +239,7 @@ class TestASGICORS(unittest.TestCase):
         )
 
     def test_explicit_wildcard_does_not_enable_credentials(self):
-        """显式通配符保留兼容能力，但不得再次形成反射 Origin 的组合。"""
+        """Explicit wildcard preserves compatibility capability, but must not re-enable reflected Origin combinations."""
 
         client = self._create_client(["*"])
         origin = "https://frontend.example"
@@ -260,7 +260,7 @@ class TestASGICORS(unittest.TestCase):
         self.assertNotIn("access-control-allow-credentials", preflight.headers)
 
     def test_untrusted_multipart_request_is_rejected_before_side_effect(self):
-        """无需预检的 multipart 请求也必须在进入上传处理函数前返回 403。"""
+        """Preflight-free multipart requests must also return 403 before reaching upload handler."""
 
         application = FastAPI()
         save_upload = Mock(return_value="stored.mp3")

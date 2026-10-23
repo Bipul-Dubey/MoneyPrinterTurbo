@@ -62,8 +62,8 @@ class TestControllerAuthentication(unittest.TestCase):
 
     def test_get_task_id_reuses_safe_header_or_generates_uuid(self):
         """
-        客户端提供 request ID 时需要原样保留，缺失时则生成可记录到日志和
-        错误响应中的 UUID，保证两种入口都有可追踪标识。
+        When the client provides a request ID, preserve it as-is; when absent, generate a UUID
+        recordable in logs and error responses, ensuring both entry paths have traceable identifiers.
         """
         self.assertEqual(
             base.get_task_id(self._request({"x-task-id": "request-123"})),
@@ -99,7 +99,7 @@ class TestControllerAuthentication(unittest.TestCase):
         self.assertNotIn("forged-log-entry", logged_warning)
 
     def test_verify_token_accepts_matching_key(self):
-        """配置了 API Key 时，相同请求头必须正常通过鉴权。"""
+        """When API Key is configured, identical request headers must pass authentication normally."""
         config.app["api_key"] = "secret"
 
         result = base.verify_token(self._request({"x-api-key": "secret"}))
@@ -107,7 +107,7 @@ class TestControllerAuthentication(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_verify_token_allows_requests_when_key_is_not_configured(self):
-        """未配置 Key 时必须保留历史免认证行为，避免本地升级后中断。"""
+        """When Key is unconfigured, retain legacy unauthenticated behavior to prevent breakage after local upgrade."""
 
         config.app.pop("api_key", None)
         self.assertIsNone(base.verify_token(self._request()))
@@ -119,8 +119,8 @@ class TestControllerAuthentication(unittest.TestCase):
 
     def test_verify_token_rejects_missing_or_wrong_key(self):
         """
-        缺失和错误的 API Key 都必须返回 401，并保留客户端 request ID，
-        避免鉴权失败在日志中无法与调用方请求对应。
+        Both missing and incorrect API Keys must return 401 while preserving the client request ID,
+        preventing auth failures from becoming uncorrelatable with caller requests in logs.
         """
         config.app["api_key"] = "secret"
 
@@ -137,7 +137,7 @@ class TestControllerAuthentication(unittest.TestCase):
                 self.assertEqual(raised.exception.message, "invalid API key")
 
     def test_verify_token_rejects_non_string_configuration(self):
-        """非字符串配置应明确报错，且错误中不得暴露配置内容。"""
+        """Non-string configuration should raise an explicit error without exposing config content in the error."""
 
         config.app["api_key"] = ["unexpected", "value"]
 
@@ -151,7 +151,7 @@ class TestControllerAuthentication(unittest.TestCase):
         )
 
     def test_verify_token_handles_unicode_without_server_error(self):
-        """非 ASCII Header 不得触发 compare_digest TypeError 或返回 500。"""
+        """Non-ASCII headers must not trigger compare_digest TypeError or return 500."""
 
         config.app["api_key"] = "密钥-é"
         self.assertIsNone(base.verify_token(self._request({"x-api-key": "密钥-é"})))
@@ -162,7 +162,7 @@ class TestControllerAuthentication(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 401)
 
     def test_new_router_preserves_common_prefix_and_dependencies(self):
-        """所有 V1 路由都应复用统一前缀，并仅在传入时设置鉴权依赖。"""
+        """All V1 routers should reuse a common prefix and only set auth dependencies when provided."""
         dependency = object()
 
         plain_router = new_router()

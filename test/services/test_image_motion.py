@@ -1,4 +1,4 @@
-"""验证图片动态效果的兼容默认值、参数传递和真实渲染像素。"""
+"""Validate compatible default values, parameter passing, and real render pixels for image motion effects."""
 
 from pathlib import Path
 from unittest.mock import patch

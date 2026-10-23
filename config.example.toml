@@ -3,7 +3,7 @@
 # credentials in config.toml; do not commit your local config.toml.
 
 # =============================================================================
-# API Service / API 服务
+# API Service
 # =============================================================================
 # Log level: DEBUG, INFO, WARNING, or ERROR.
 log_level = "DEBUG"
@@ -18,9 +18,7 @@ listen_port = 8080
 # It logs redacted request parameters and response status/timing, never response
 # bodies. Prompts may be visible; only enable while troubleshooting.
 # WebUI: Settings > Interface > Diagnostic logging; Apply takes effect immediately
-# in that process. Other processes / manual file edits require a restart.
-# 请求追踪独立于日志等级，默认关闭；提示词可能出现在日志中。
-# WebUI 设置中的诊断日志可立即生效；其它进程及手工修改配置后需要重启。
+# in that process. Other processes
 log_requests = false
 
 [app]
@@ -29,20 +27,15 @@ log_requests = false
 # Leave empty for local backward-compatible access. When configured, clients
 # must send the same value in the x-api-key request header. Keep real keys only
 # in config.toml and never commit them.
-# API 路由和 /tasks 生成文件的可选保护。留空时保持本地免认证行为；
-# 配置后客户端必须通过 x-api-key 请求头传入同一个值。
 # Task artifact requests also require this header; a browser address bar cannot
 # attach custom headers, so authenticated clients should download them via HTTP.
-# 任务产物下载同样需要该请求头；浏览器地址栏无法附加自定义请求头，启用鉴权后
-# 应由 API 客户端携带请求头下载。
 api_key = ""
 
 # -----------------------------------------------------------------------------
-# General / 通用设置
+# General
 # -----------------------------------------------------------------------------
 
 # Hide the basic configuration panel in the WebUI.
-# 是否隐藏 WebUI 基础配置面板。
 hide_config = false
 
 # Script generation backend. "local" keeps the existing LLM workflow.
@@ -63,15 +56,13 @@ loomloom_run_timeout_seconds = 600
 loomloom_video_run_timeout_seconds = 1800
 
 # Timeout in seconds for a single Edge TTS streaming request.
-# 单次 Edge TTS 流式请求超时时间。慢网络可适当调大，设置为 0 表示禁用超时。
 edge_tts_timeout = 30
 
 # Verify TLS certificates for external APIs and material downloads.
-# 默认应保持开启；仅在可信代理或自签名证书环境中临时关闭。
 tls_verify = true
 
 # -----------------------------------------------------------------------------
-# Video Materials / 视频素材
+# Video Materials
 # -----------------------------------------------------------------------------
 
 # Available values: "pexels", "pixabay", "coverr", "wavespeed",
@@ -82,7 +73,7 @@ tls_verify = true
 # "loomloom" is a paid Shengsuan Cloud source and requires explicit
 # confirmation in the WebUI before each generation request.
 # "ofox" generates brand-new clips through the OFox multi-model video API
-# (Seedance / Wan and other text-to-video models behind one key); generation
+# (Seedance
 # is billed per submitted clip.
 # "openai_image" generates one image per script keyword through any
 # OpenAI-compatible /images/generations endpoint (local ComfyUI/SD gateways
@@ -91,7 +82,6 @@ video_source = "pexels"
 
 # API key lists support key rotation. Use straight ASCII double quotes and
 # separate multiple keys with commas, for example: ["key-1", "key-2"].
-# Key 必须使用英文半角双引号，多个 Key 使用英文逗号分隔。
 
 # Register at https://www.pexels.com/api/
 pexels_api_keys = []
@@ -106,7 +96,7 @@ coverr_api_keys = []
 # models. Create an API key at https://wavespeed.ai
 wavespeed_api_keys = []
 # Optional. Any WaveSpeed text-to-video model id that accepts
-# prompt / aspect_ratio / duration works here.
+# prompt
 # wavespeed_text_to_video_model = "bytedance/seedance-2.0-fast/text-to-video"
 # The default model only accepts durations of 4-15 seconds. Requested clip
 # durations outside the range are clamped automatically before submission
@@ -232,7 +222,6 @@ twelvelabs_rerank_terms = false
 # twelvelabs_pegasus_model = "pegasus1.5"
 
 # Match search terms and downloaded materials to the script narrative order.
-# 默认关闭，开启后会减少随机性，使素材顺序更贴近文案结构。
 match_materials_to_script = false
 
 # Optional Sonilo video-matched original background music.
@@ -240,11 +229,11 @@ match_materials_to_script = false
 # this value, or you can set the SONILO_API_KEY environment variable instead.
 sonilo_api_key = ""
 sonilo_base_url = "https://api.sonilo.com"
-# 单次生成流连续无数据时的最长等待秒数；它不是整个请求的总耗时上限。
+# Maximum wait in seconds when a generation stream emits no data; not a whole-request timeout.
 sonilo_timeout = 600
 
 # -----------------------------------------------------------------------------
-# LLM Providers / 大模型提供商
+# LLM Providers
 # -----------------------------------------------------------------------------
 
 # Provider definitions, default models, and default Base URLs are maintained in
@@ -252,7 +241,7 @@ sonilo_timeout = 600
 # Registry defaults; only set them when you need an explicit override.
 llm_provider = "moonshot"
 
-# Kimi / Moonshot AI
+# Kimi
 # API key: https://platform.kimi.com?track_id=track-6eec1e56a4494e52adcaebbcbbefce59&aff=moneyprinterturbo
 moonshot_api_key = ""
 moonshot_base_url = ""
@@ -271,9 +260,9 @@ apimart_api_key = ""
 apimart_base_url = ""
 apimart_model_name = ""
 
-# Fluxion AI：使用 OpenAI 接口分组的 API Key，地址和模型可按分组覆盖。
-# 留空时默认使用 https://fluxionai.space/v1 和 gpt-5.5。
-# 模型广场：https://fluxionai.space/model-plaza
+# Fluxion AI: API key configured via OpenAI group. Base URL and model can be overridden.
+# Defaults to https://fluxionai.space/v1 and gpt-5.5 when empty.
+# Model plaza: https://fluxionai.space/model-plaza
 fluxionai_api_key = ""
 fluxionai_base_url = ""
 fluxionai_model_name = ""
@@ -453,7 +442,7 @@ api_route_model_name = ""
 ollama_base_url = ""
 ollama_model_name = ""
 
-# Claude Code (Claude Pro / Max / Team subscription).
+# Claude Code (Claude Pro
 # Uses the locally installed, logged-in `claude` CLI in headless mode instead of
 # an API key, so no Anthropic API credit is needed. Requirements:
 #   - the `claude` CLI must be installed in whatever runs MoneyPrinterTurbo
@@ -461,7 +450,7 @@ ollama_model_name = ""
 #     a long-lived token from `claude setup-token` exported as
 #     CLAUDE_CODE_OAUTH_TOKEN (needed for Docker)
 # Leave model_name empty to use the CLI's current default model, or set one such
-# as "claude-opus-5" / "claude-sonnet-5". Leave cli_path empty to resolve
+# as "claude-opus-5"
 # `claude` from PATH. Leave timeout empty to use the 300s default.
 # Calls use your Claude subscription usage limits; conflicting ANTHROPIC_* and
 # CLAUDE_CODE_USE_* environment variables are removed before the CLI runs.
@@ -473,7 +462,7 @@ claude_code_timeout = ""
 # Settings -> LLM Settings (OAuth device authorization, China or Global
 # platform) and requests run on your Kimi Code plan usage limits. Credentials
 # are stored here automatically after sign-in (kimi_code_access_token /
-# kimi_code_refresh_token / kimi_code_token_expires_at / kimi_code_region) and
+# kimi_code_refresh_token
 # refreshed transparently. Leave model_name empty to use "kimi-for-coding".
 # Leave timeout empty to use the 300s default.
 kimi_code_model_name = ""
@@ -503,7 +492,7 @@ pollinations_base_url = ""
 pollinations_model_name = ""
 
 # -----------------------------------------------------------------------------
-# Speech, Subtitles, and Video / 语音、字幕与视频
+# Speech, Subtitles, and Video
 # -----------------------------------------------------------------------------
 
 # Xiaomi MiMo TTS shares mimo_api_key and mimo_base_url with the MiMo LLM.
@@ -549,7 +538,7 @@ subtitle_provider = "edge"
 # video_codec = "libx264"
 
 # -----------------------------------------------------------------------------
-# Storage and Task Runtime / 存储与任务运行
+# Storage and Task Runtime
 # -----------------------------------------------------------------------------
 
 # Public base URL used to build generated video download links. Leave empty to
@@ -574,7 +563,7 @@ max_concurrent_tasks = 5
 max_queued_tasks = 100
 
 # -----------------------------------------------------------------------------
-# Cross-platform Publishing / 跨平台发布
+# Cross-platform Publishing
 # -----------------------------------------------------------------------------
 
 # Upload-Post can publish generated videos to TikTok, Instagram, and YouTube.
@@ -592,9 +581,6 @@ upload_post_youtube_privacy_status = "public"
 # Declare whether the video is made for children. Choose based on its audience.
 # If unset, future YouTube uploads explicitly declare "not made for kids".
 # Set true for children's content. Previously uploaded videos are not changed.
-# 是否面向儿童：请根据视频实际受众设置，必须使用 TOML 布尔值 true / false。
-# 未配置时，后续 YouTube 上传默认声明为非面向儿童；儿童内容请显式设置为 true。
-# 与旧版省略声明字段不同，此设置不会修改已上传的视频。
 upload_post_youtube_made_for_kids = false
 # Maximum number of running and queued cross-post jobs per process. When the
 # limit is reached, video generation still succeeds and only cross-posting is
@@ -603,7 +589,7 @@ upload_post_youtube_made_for_kids = false
 upload_post_max_pending_tasks = 10
 
 # =============================================================================
-# Whisper Subtitles / Whisper 字幕
+# Whisper Subtitles
 # =============================================================================
 
 [whisper]
@@ -620,7 +606,7 @@ compute_type = "int8"
 # initial_prompt = ""
 
 # =============================================================================
-# Material Request Proxy / 素材请求代理
+# Material Request Proxy
 # =============================================================================
 
 [proxy]
@@ -631,7 +617,7 @@ compute_type = "int8"
 # https = "http://127.0.0.1:1080"
 
 # =============================================================================
-# TTS Providers / 语音合成服务
+# TTS Providers
 # =============================================================================
 
 [azure]
@@ -730,7 +716,7 @@ model_id = ""
 voice_id = "default"
 
 # =============================================================================
-# WebUI Preferences / WebUI 偏好
+# WebUI Preferences
 # =============================================================================
 
 [ui]
@@ -738,7 +724,6 @@ voice_id = "default"
 hide_log = false
 
 # Open the task folder automatically after video generation completes.
-# 视频生成完成后是否自动打开任务目录；关闭后仍可在任务管理中手动打开。
 open_task_folder_on_completion = true
 
 # The WebUI writes the remaining preferences automatically. Uncomment values

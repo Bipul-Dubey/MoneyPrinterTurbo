@@ -1,4 +1,4 @@
-"""任务历史下载文件名必须移除控制符与双向文本控制符。"""
+"""Task history download filenames must strip control characters and bidirectional text control characters."""
 import ast
 import os
 import re
@@ -17,10 +17,11 @@ DOWNLOAD_NAME_CONSTANTS = {
 
 def _load_download_name_helpers():
     """
-    从 WebUI 入口中隔离加载下载文件名相关的纯函数。
+    Isolate and load pure functions related to download filenames from the WebUI entry point.
 
-    直接导入 Main.py 会执行整套页面渲染。这里只编译目标常量和函数，执行的仍是
-    合并后的真实实现，因此断言覆盖的是生产行为而不是测试里的副本。
+    Directly importing Main.py executes full page rendering. Compiling only target constants
+    and functions here executes the real consolidated implementation, ensuring assertions
+    cover production behavior rather than test copies.
     """
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     selected_nodes = []
@@ -43,9 +44,10 @@ build_video_download_name = _load_download_name_helpers()[
     "_build_video_download_name"
 ]
 
-# 显式列出必须移除的字符，不复制生产代码的 range 推导：实现写错范围时断言会
-# 直接失败，而不是跟着实现一起漏测。C0 控制符与 U+0085、U+2028、U+2029 已被
-# 空白合并处理，这里仍然逐个确认，避免后续改动把它们重新放进文件名。
+# Explicitly list characters that must be removed without duplicating production range comprehensions:
+# if the implementation misdefines ranges, assertions fail immediately rather than missing tests together.
+# C0 control characters and U+0085, U+2028, U+2029 are already whitespace-collapsed, but we still verify
+# each one individually to prevent future changes from reintroducing them into filenames.
 C0_CONTROL_CHARACTERS = ("\x00", "\x08", "\x1b", "\x1f")
 C1_CONTROL_CHARACTERS = ("\x7f", "\x80", "\x85", "\x9f")
 BIDIRECTIONAL_CONTROL_CHARACTERS = (
@@ -65,7 +67,7 @@ LINE_SEPARATOR_CHARACTERS = (" ", " ")
 
 
 def test_download_name_drops_bidirectional_override_from_subject():
-    """U+202E 会把后续字符反向渲染，伪造出另一个看起来可信的扩展名。"""
+    """U+202E renders subsequent characters in reverse, forging an otherwise trustworthy-looking extension."""
     download_name = build_video_download_name("holiday‮4pm", 1, 1)
 
     assert "‮" not in download_name
@@ -73,7 +75,7 @@ def test_download_name_drops_bidirectional_override_from_subject():
 
 
 def test_download_name_drops_every_unsafe_character_from_subject():
-    """上传入口拒绝的整组字符都不能进入下载文件名。"""
+    """The entire set of characters rejected by the upload entry point must not enter download filenames."""
     unsafe_characters = (
         C0_CONTROL_CHARACTERS
         + C1_CONTROL_CHARACTERS
@@ -88,7 +90,7 @@ def test_download_name_drops_every_unsafe_character_from_subject():
 
 
 def test_download_name_keeps_ordinary_multilingual_subjects():
-    """移除控制符不能顺带改写正常主题，包括中文、重音字母和标点。"""
+    """Removing control characters must not inadvertently modify ordinary subjects, including Chinese, accented characters, and punctuation."""
     assert build_video_download_name("上海一日游", 1, 1) == "上海一日游.mp4"
     assert build_video_download_name("Café déjà vu", 2, 3) == "Café déjà vu-2.mp4"
     assert (
