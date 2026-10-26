@@ -22,6 +22,32 @@ PROVIDER_TIPS_PREFIXES = (
 # fall back to English uniformly to avoid duplicating identical brand names across a dozen files and partial updates later.
 ENGLISH_FALLBACK_KEYS = frozenset(
     {
+        "Auto (AI Decided)",
+        "Slow Zoom (Default)",
+        "Pan Left",
+        "Pan Right",
+        "Tilt Up",
+        "Tilt Down",
+        "Cross Dissolve",
+        "Jump Cut",
+        "Ripple Dissolve",
+        "Iris In",
+        "Iris Out",
+        "Iris Box",
+        "Clock Wipe",
+        "Wipe Left",
+        "Wipe Right",
+        "Cross Zoom",
+        "Dip to Black",
+        "Dip to White",
+        "Logs",
+        "Transitions & Effects",
+        "AI-Selected Scene Transitions & Camera Motions",
+        "Scene",
+        "Source Material",
+        "Camera Motion",
+        "Scene Transition",
+        "Transitions & effects will be displayed here as clips are composed.",
         "Diagnostic Logging",
         "Diagnostic Logging Help",
         "Log Level",
@@ -393,6 +419,7 @@ class TestWebuiI18n(unittest.TestCase):
         self.assertIsNotNone(support_locales)
         self.assertIn("ru-RU", support_locales)
         self.assertIn("ca-ES", support_locales)
+        self.assertIn("hi-IN", support_locales)
 
     def test_locale_files_do_not_redefine_a_translation_key(self):
         """

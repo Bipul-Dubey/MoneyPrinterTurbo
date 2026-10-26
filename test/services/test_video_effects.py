@@ -191,6 +191,70 @@ class TestZoomTransitions(unittest.TestCase):
         )
 
 
+class TestExpandedPremiereTransitions(unittest.TestCase):
+    def setUp(self):
+        self.clip = _gradient_clip(width=80, height=60, duration=1.0)
+        self.addCleanup(self.clip.close)
+
+    def test_jump_cut(self):
+        res = video_effects.jump_cut_transition(self.clip)
+        self.assertEqual(res.duration, self.clip.duration)
+        np.testing.assert_array_equal(res.get_frame(0), self.clip.get_frame(0))
+
+    def test_cross_dissolve(self):
+        res = video_effects.cross_dissolve_transition(self.clip, 0.5)
+        self.addCleanup(res.close)
+        self.assertEqual(res.duration, self.clip.duration)
+        self.assertLess(res.get_frame(0).mean(), self.clip.get_frame(0).mean())
+        np.testing.assert_allclose(res.get_frame(0.8), self.clip.get_frame(0.8), atol=2)
+
+    def test_dip_to_white(self):
+        res = video_effects.dip_to_white_transition(self.clip, 0.4)
+        self.addCleanup(res.close)
+        self.assertEqual(res.duration, self.clip.duration)
+        self.assertGreaterEqual(res.get_frame(0).mean(), 250)
+
+    def test_dip_to_black(self):
+        res = video_effects.dip_to_black_transition(self.clip, 0.4)
+        self.addCleanup(res.close)
+        self.assertEqual(res.duration, self.clip.duration)
+        self.assertLessEqual(res.get_frame(0).mean(), 5)
+        self.assertLessEqual(res.get_frame(0.99).mean(), 20)
+
+    def test_ripple_dissolve(self):
+        res = video_effects.ripple_dissolve_transition(self.clip, 0.5)
+        self.addCleanup(res.close)
+        self.assertEqual(res.duration, self.clip.duration)
+        f_mid = res.get_frame(0.2)
+        self.assertEqual(f_mid.shape, (60, 80, 3))
+
+    def test_iris_in_and_out(self):
+        res_in = video_effects.iris_in_transition(self.clip, 0.5)
+        res_out = video_effects.iris_out_transition(self.clip, 0.5)
+        self.addCleanup(res_in.close)
+        self.addCleanup(res_out.close)
+        self.assertEqual(res_in.duration, self.clip.duration)
+        self.assertEqual(res_out.duration, self.clip.duration)
+        self.assertEqual(res_in.get_frame(0.2).shape, (60, 80, 3))
+        self.assertEqual(res_out.get_frame(0.8).shape, (60, 80, 3))
+
+    def test_linear_and_clock_wipe(self):
+        res_wipe = video_effects.linear_wipe_transition(self.clip, 0.5, "left")
+        res_clock = video_effects.clock_wipe_transition(self.clip, 0.5)
+        self.addCleanup(res_wipe.close)
+        self.addCleanup(res_clock.close)
+        self.assertEqual(res_wipe.duration, self.clip.duration)
+        self.assertEqual(res_clock.duration, self.clip.duration)
+        self.assertEqual(res_wipe.get_frame(0.2).shape, (60, 80, 3))
+        self.assertEqual(res_clock.get_frame(0.2).shape, (60, 80, 3))
+
+    def test_cross_zoom(self):
+        res = video_effects.cross_zoom_transition(self.clip, 0.5)
+        self.addCleanup(res.close)
+        self.assertEqual(res.duration, self.clip.duration)
+        self.assertEqual(res.get_frame(0.1).shape, (60, 80, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
 

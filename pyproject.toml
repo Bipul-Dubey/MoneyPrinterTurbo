@@ -98,6 +98,7 @@ packages = ["app", "webui"]
 "resource/fonts/Charm-Bold.ttf" = "app/_assets/resource/fonts/Charm-Bold.ttf"
 "resource/fonts/Charm-Regular.ttf" = "app/_assets/resource/fonts/Charm-Regular.ttf"
 "resource/fonts/UTM Kabel KT.ttf" = "app/_assets/resource/fonts/UTM Kabel KT.ttf"
+"resource/fonts/DevanagariMT.ttc" = "app/_assets/resource/fonts/DevanagariMT.ttc"
 "resource/songs" = "app/_assets/resource/songs"
 "resource/public" = "app/_assets/resource/public"
 
@@ -113,7 +114,7 @@ include = [
     "/resource/fonts/STHeitiMedium.ttc", "/resource/fonts/MicrosoftYaHeiBold.ttc",
     "/resource/fonts/BeVietnamPro-Bold.ttf", "/resource/fonts/BeVietnamPro-Medium.ttf",
     "/resource/fonts/Charm-Bold.ttf", "/resource/fonts/Charm-Regular.ttf",
-    "/resource/fonts/UTM Kabel KT.ttf",
+    "/resource/fonts/UTM Kabel KT.ttf", "/resource/fonts/DevanagariMT.ttc",
 ]
 
 [tool.uv]

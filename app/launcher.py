@@ -60,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         port = args.port if args.port is not None else _available_port(args.host)
-        ui = Path(__file__).resolve().parent.parent / "webui" / "Main.py"
+        if paths.is_source_checkout():
+            ui = paths.SOURCE_ROOT / "webui" / "Main.py"
+        else:
+            ui = Path(__file__).resolve().parent.parent / "webui" / "Main.py"
         return subprocess.call([
             sys.executable, "-m", "streamlit", "run", str(ui),
             f"--server.address={args.host}", f"--server.port={port}",

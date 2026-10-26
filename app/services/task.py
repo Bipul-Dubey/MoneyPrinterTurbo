@@ -15,7 +15,7 @@ from loguru import logger
 
 from app.config import config
 from app.models import const
-from app.models.schema import VideoConcatMode, VideoParams
+from app.models.schema import ImageMotion, VideoConcatMode, VideoParams, VideoTransitionMode
 from app.services import bgm as bgm_service
 from app.services import (
     elevenlabs_music,
@@ -721,10 +721,37 @@ def get_video_materials(
 ):
     if params.video_source == "local":
         logger.info("\n\n## preprocess local materials")
+        effective_image_motion = params.image_motion
+        transition_mode_val = getattr(
+            params.video_transition_mode, "value", params.video_transition_mode
+        )
+        motion_val = getattr(params.image_motion, "value", params.image_motion)
+        if (
+            transition_mode_val in ("Auto", "auto")
+            or motion_val in ("auto", "Auto")
+        ):
+            effective_image_motion = getattr(ImageMotion, "auto", "auto")
+
+        # Dynamically size image durations to evenly cover audio duration without repeating images.
+        # The computed clip_duration is stored on params so generate_final_videos can pass it as
+        # max_clip_duration to combine_videos, preventing the trimmer from cutting clips back to
+        # the default video_clip_duration (e.g. 5s) and triggering the looping fallback.
+        local_materials_count = len([m for m in (params.video_materials or []) if getattr(m, "url", None)])
+        clip_duration = params.video_clip_duration or 4
+        if local_materials_count > 0 and audio_duration and float(audio_duration) > 0:
+            target_per_image = math.ceil((float(audio_duration) + 0.5) / local_materials_count)
+            clip_duration = max(clip_duration, target_per_image)
+            logger.info(
+                f"local materials: {local_materials_count} items for {audio_duration:.1f}s audio, "
+                f"calculated duration per image: {clip_duration}s (prevents repetition)"
+            )
+        # Persist computed clip_duration so combine_videos receives the correct max_clip_duration.
+        params._local_clip_duration = clip_duration
+
         materials = video.preprocess_video(
             materials=params.video_materials,
-            clip_duration=params.video_clip_duration,
-            image_motion=params.image_motion,
+            clip_duration=clip_duration,
+            image_motion=effective_image_motion,
         )
         if not materials:
             _mark_task_failed(
@@ -1024,6 +1051,11 @@ def generate_final_videos(
         # Each video occupies a proportional slice of the 50% stage, divided between synthesis and final encoding.
         # Clip processing is the most time-consuming synthesis step, advancing progress incrementally per clip.
         combine_share = 50 / params.video_count / 2
+        applied_transitions = []
+        # For local image sources, use the dynamically computed clip duration so that combine_videos
+        # does not trim image clips back to the default video_clip_duration (e.g. 5s), which would
+        # cause the looping fallback to repeat images when fewer images cover a long audio track.
+        effective_max_clip_duration = getattr(params, "_local_clip_duration", None) or params.video_clip_duration
         video.combine_videos(
             combined_video_path=combined_video_path,
             video_paths=downloaded_videos,
@@ -1032,14 +1064,44 @@ def generate_final_videos(
             video_fit_mode=params.video_fit_mode,
             video_concat_mode=video_concat_mode,
             video_transition_mode=video_transition_mode,
-            max_clip_duration=params.video_clip_duration,
+            max_clip_duration=effective_max_clip_duration,
             threads=params.n_threads,
             clip_speed=params.video_clip_speed,
             progress_callback=_stage_progress_reporter(
                 task_id, _progress, _progress + combine_share
             ),
+            applied_transitions=applied_transitions,
             **batch_options,
         )
+        transition_plan = []
+        sorted_transitions = sorted(applied_transitions, key=lambda x: x.get("clip", 0))
+        for tr_entry in sorted_transitions:
+            source_file = tr_entry.get("file", "")
+            motion = "Video Clip"
+            if ".pan_right-" in source_file:
+                motion = "Pan Right"
+            elif ".pan_left-" in source_file:
+                motion = "Pan Left"
+            elif ".tilt_up-" in source_file:
+                motion = "Tilt Up"
+            elif ".tilt_down-" in source_file:
+                motion = "Tilt Down"
+            elif ".zoom_in-" in source_file:
+                motion = "Zoom In"
+            elif ".zoom_out-" in source_file:
+                motion = "Zoom Out"
+            elif ".zoom-" in source_file:
+                motion = "Slow Zoom"
+            elif ".static-" in source_file:
+                motion = "Static"
+            transition_plan.append({
+                "clip_index": tr_entry.get("clip", len(transition_plan) + 1),
+                "file": source_file,
+                "motion": motion,
+                "transition": tr_entry.get("transition", "None"),
+            })
+        if transition_plan:
+            sm.state.update_task(task_id, transition_plan=transition_plan)
         if allocate_batch_materials:
             selected_sources = list(dict.fromkeys(used_video_paths))
             reused_sources = [file for file in selected_sources if source_usage.get(file, 0)]

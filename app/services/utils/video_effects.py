@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from moviepy import Clip, ColorClip, CompositeVideoClip, vfx
 from PIL import Image
@@ -11,6 +12,187 @@ def fadein_transition(clip: Clip, t: float) -> Clip:
 # FadeOut
 def fadeout_transition(clip: Clip, t: float) -> Clip:
     return clip.with_effects([vfx.FadeOut(t)])
+
+
+# JumpCut (Instantaneous direct cut, zero transition latency)
+def jump_cut_transition(clip: Clip) -> Clip:
+    return clip
+
+
+# CrossDissolve
+def cross_dissolve_transition(clip: Clip, t: float = 0.8) -> Clip:
+    dur = min(max(t, 0.1), clip.duration)
+    return clip.with_effects([vfx.FadeIn(dur)])
+
+
+# DipToBlack
+def dip_to_black_transition(clip: Clip, t: float = 0.6) -> Clip:
+    dur = min(max(t, 0.1), clip.duration / 2)
+    return clip.with_effects([vfx.FadeIn(dur), vfx.FadeOut(dur)])
+
+
+# DipToWhite (Flash cut)
+def dip_to_white_transition(clip: Clip, t: float = 0.4) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    white_overlay = (
+        ColorClip(size=(width, height), color=(255, 255, 255))
+        .with_duration(dur)
+        .with_effects([vfx.FadeOut(dur)])
+    )
+    return CompositeVideoClip([clip, white_overlay], size=(width, height)).with_duration(
+        clip.duration
+    )
+
+
+# RippleDissolve
+def ripple_dissolve_transition(clip: Clip, t: float = 0.8) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    y_coords = np.arange(height)
+    freq = 0.04
+    base_amp = min(25.0, width * 0.03)
+
+    def ripple_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time >= dur:
+            return frame
+        progress = current_time / dur
+        amp = base_amp * (1.0 - progress)
+        shift = (amp * np.sin(freq * y_coords + current_time * 12.0)).astype(np.int32)
+        grid_x = np.clip(np.arange(width)[None, :] + shift[:, None], 0, width - 1)
+        rippled = frame[y_coords[:, None], grid_x]
+        alpha = min(max(progress, 0.0), 1.0)
+        return (rippled * alpha).astype(np.uint8)
+
+    return clip.transform(ripple_effect)
+
+
+# IrisIn (Round)
+def iris_in_transition(clip: Clip, t: float = 0.8) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    max_r = math.hypot(width / 2, height / 2)
+    y, x = np.ogrid[:height, :width]
+    dist_from_center = np.hypot(x - width / 2, y - height / 2)
+
+    def iris_in_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time >= dur:
+            return frame
+        progress = min(max(current_time / dur, 0.0), 1.0)
+        r = max_r * progress
+        edge = 10.0
+        alpha = np.clip((r - dist_from_center) / edge + 0.5, 0.0, 1.0)
+        return (frame * alpha[:, :, None]).astype(np.uint8)
+
+    return clip.transform(iris_in_effect)
+
+
+# IrisOut (Round)
+def iris_out_transition(clip: Clip, t: float = 0.8) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    max_r = math.hypot(width / 2, height / 2)
+    y, x = np.ogrid[:height, :width]
+    dist_from_center = np.hypot(x - width / 2, y - height / 2)
+    start_time = max(0.0, clip.duration - dur)
+
+    def iris_out_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time < start_time:
+            return frame
+        progress = min(max((clip.duration - current_time) / dur, 0.0), 1.0)
+        r = max_r * progress
+        edge = 10.0
+        alpha = np.clip((r - dist_from_center) / edge + 0.5, 0.0, 1.0)
+        return (frame * alpha[:, :, None]).astype(np.uint8)
+
+    return clip.transform(iris_out_effect)
+
+
+# IrisBox
+def iris_box_transition(clip: Clip, t: float = 0.8) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    y, x = np.ogrid[:height, :width]
+    dx = np.abs(x - width / 2)
+    dy = np.abs(y - height / 2)
+
+    def iris_box_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time >= dur:
+            return frame
+        progress = min(max(current_time / dur, 0.0), 1.0)
+        half_w = (width / 2) * progress
+        half_h = (height / 2) * progress
+        mask = (dx <= half_w) & (dy <= half_h)
+        return (frame * mask[:, :, None]).astype(np.uint8)
+
+    return clip.transform(iris_box_effect)
+
+
+# LinearWipe
+def linear_wipe_transition(clip: Clip, t: float = 0.8, direction: str = "left") -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    y, x = np.ogrid[:height, :width]
+
+    def wipe_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time >= dur:
+            return frame
+        progress = min(max(current_time / dur, 0.0), 1.0)
+        edge = 12.0
+        if direction == "left":
+            boundary = width * progress
+            alpha = np.clip((boundary - x) / edge + 0.5, 0.0, 1.0)
+        elif direction == "right":
+            boundary = width * (1.0 - progress)
+            alpha = np.clip((x - boundary) / edge + 0.5, 0.0, 1.0)
+        elif direction == "top":
+            boundary = height * progress
+            alpha = np.clip((boundary - y) / edge + 0.5, 0.0, 1.0)
+        else:
+            boundary = height * (1.0 - progress)
+            alpha = np.clip((y - boundary) / edge + 0.5, 0.0, 1.0)
+        return (frame * alpha[:, :, None]).astype(np.uint8)
+
+    return clip.transform(wipe_effect)
+
+
+# ClockWipe (Radial angle wipe)
+def clock_wipe_transition(clip: Clip, t: float = 0.8) -> Clip:
+    width, height = clip.size
+    dur = min(max(t, 0.1), clip.duration)
+    y, x = np.ogrid[:height, :width]
+    angles = (np.arctan2(x - width / 2, -(y - height / 2)) + 2 * np.pi) % (2 * np.pi)
+
+    def clock_wipe_effect(get_frame, current_time: float):
+        frame = get_frame(current_time)
+        if current_time >= dur:
+            return frame
+        progress = min(max(current_time / dur, 0.0), 1.0)
+        sweep_angle = 2 * np.pi * progress
+        mask = angles <= sweep_angle
+        return (frame * mask[:, :, None]).astype(np.uint8)
+
+    return clip.transform(clock_wipe_effect)
+
+
+# CrossZoom
+def cross_zoom_transition(clip: Clip, t: float = 0.6) -> Clip:
+    dur = min(max(t, 0.1), clip.duration)
+
+    def cross_zoom_effect(get_frame, current_time: float):
+        if current_time >= dur:
+            return get_frame(current_time)
+        progress = min(max(current_time / dur, 0.0), 1.0)
+        ease = 1.0 - math.pow(1.0 - progress, 3)
+        scale = 1.6 - 0.6 * ease
+        return _zoom_frame(get_frame(current_time), scale)
+
+    return clip.transform(cross_zoom_effect, apply_to=["mask"])
 
 
 # SlideIn

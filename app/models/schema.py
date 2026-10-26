@@ -29,6 +29,30 @@ class VideoTransitionMode(str, Enum):
     slide_out = "SlideOut"
     zoom_in = "ZoomIn"
     zoom_out = "ZoomOut"
+    cross_dissolve = "CrossDissolve"
+    dip_to_black = "DipToBlack"
+    dip_to_white = "DipToWhite"
+    ripple_dissolve = "RippleDissolve"
+    iris_in = "IrisIn"
+    iris_out = "IrisOut"
+    iris_box = "IrisBox"
+    clock_wipe = "ClockWipe"
+    wipe_left = "WipeLeft"
+    wipe_right = "WipeRight"
+    cross_zoom = "CrossZoom"
+    jump_cut = "JumpCut"
+    auto = "Auto"
+
+    @classmethod
+    def _missing_(cls, value):
+        if hasattr(value, "value"):
+            value = value.value
+        if isinstance(value, str):
+            clean = value.lower().replace("-", "_")
+            for member in cls:
+                if (member.value and member.value.lower() == clean) or member.name.lower() == clean:
+                    return member
+        return cls.none
 
 
 class VideoAspect(str, Enum):
@@ -56,6 +80,24 @@ class VideoFitMode(str, Enum):
 class ImageMotion(str, Enum):
     static = "static"
     zoom = "zoom"
+    zoom_in = "zoom_in"
+    zoom_out = "zoom_out"
+    pan_left = "pan_left"
+    pan_right = "pan_right"
+    tilt_up = "tilt_up"
+    tilt_down = "tilt_down"
+    auto = "auto"
+
+    @classmethod
+    def _missing_(cls, value):
+        if hasattr(value, "value"):
+            value = value.value
+        if isinstance(value, str):
+            clean = value.lower().replace("-", "_")
+            for member in cls:
+                if member.value == clean or member.name.lower() == clean:
+                    return member
+        return cls.zoom
 
 
 SubtitleDisplayMode = Literal["sentence", "word_by_word"]

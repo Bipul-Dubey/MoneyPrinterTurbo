@@ -14,7 +14,7 @@ import time
 import unicodedata
 from contextlib import ExitStack, contextmanager, redirect_stdout
 from functools import lru_cache
-from typing import Callable, List
+from typing import Any, Callable, List, Union
 from loguru import logger
 import numpy as np
 from moviepy import (
@@ -979,6 +979,7 @@ def combine_videos(
     source_groups: dict[str, str] | None = None,
     used_video_paths: List[str] | None = None,
     progress_callback: Callable[[float], None] | None = None,
+    applied_transitions: List[dict] | None = None,
 ) -> str:
     # Pydantic leaves this optional default as the string "random" unless
     # explicitly provided. Normalize it once for all downstream enum access.
@@ -1043,6 +1044,22 @@ def combine_videos(
         
         start_time = 0
 
+        # Image-derived video clips represent single scenes with custom camera motion;
+        # they must not be sliced into multiple fragments to prevent repeated image appearances.
+        is_image_video = any(
+            motion_tag in os.path.basename(video_path)
+            for motion_tag in (
+                ".zoom-",
+                ".zoom_in-",
+                ".zoom_out-",
+                ".pan_left-",
+                ".pan_right-",
+                ".tilt_up-",
+                ".tilt_down-",
+                ".static-",
+            )
+        )
+
         while start_time < clip_duration:
             end_time = min(start_time + source_clip_duration, clip_duration)
 
@@ -1061,7 +1078,7 @@ def combine_videos(
                 )
 
             start_time = end_time
-            if video_concat_mode.value == VideoConcatMode.sequential.value:
+            if is_image_video or video_concat_mode.value == VideoConcatMode.sequential.value:
                 break
 
     subclipped_items = _prioritize_unique_source_clips(
@@ -1117,29 +1134,109 @@ def combine_videos(
             # Short footage and faster playback can leave less than one second.
             # Keep the chosen transition inside the rendered clip's timeline.
             transition_duration = min(1.0, clip.duration)
-            if transition_value == VideoTransitionMode.fade_in.value:
+            applied_transition_name = "None"
+            clean_mode = str(transition_value).lower().replace("-", "_") if transition_value else "none"
+            if clean_mode.startswith("videotransitionmode."):
+                clean_mode = clean_mode.split(".", 1)[1]
+
+            if clean_mode in ("fadein", "fade_in"):
                 clip = video_effects.fadein_transition(clip, transition_duration)
-            elif transition_value == VideoTransitionMode.fade_out.value:
+                applied_transition_name = "FadeIn"
+            elif clean_mode in ("fadeout", "fade_out"):
                 clip = video_effects.fadeout_transition(clip, transition_duration)
-            elif transition_value == VideoTransitionMode.slide_in.value:
+                applied_transition_name = "FadeOut"
+            elif clean_mode in ("slidein", "slide_in"):
                 clip = video_effects.slidein_transition(clip, transition_duration, shuffle_side)
-            elif transition_value == VideoTransitionMode.slide_out.value:
+                applied_transition_name = f"SlideIn ({shuffle_side})"
+            elif clean_mode in ("slideout", "slide_out"):
                 clip = video_effects.slideout_transition(clip, transition_duration, shuffle_side)
-            elif transition_value == VideoTransitionMode.zoom_in.value:
+                applied_transition_name = f"SlideOut ({shuffle_side})"
+            elif clean_mode in ("zoomin", "zoom_in"):
                 clip = video_effects.zoomin_transition(clip, 1)
-            elif transition_value == VideoTransitionMode.zoom_out.value:
+                applied_transition_name = "ZoomIn"
+            elif clean_mode in ("zoomout", "zoom_out"):
                 clip = video_effects.zoomout_transition(clip, 1)
-            elif transition_value == VideoTransitionMode.shuffle.value:
-                transition_funcs = [
-                    lambda c: video_effects.fadein_transition(c, transition_duration),
-                    lambda c: video_effects.fadeout_transition(c, transition_duration),
-                    lambda c: video_effects.slidein_transition(c, transition_duration, shuffle_side),
-                    lambda c: video_effects.slideout_transition(c, transition_duration, shuffle_side),
-                    lambda c: video_effects.zoomin_transition(c, 1),
-                    lambda c: video_effects.zoomout_transition(c, 1),
+                applied_transition_name = "ZoomOut"
+            elif clean_mode in ("crossdissolve", "cross_dissolve"):
+                clip = video_effects.cross_dissolve_transition(clip, transition_duration)
+                applied_transition_name = "Cross Dissolve"
+            elif clean_mode in ("diptoblack", "dip_to_black"):
+                clip = video_effects.dip_to_black_transition(clip, transition_duration)
+                applied_transition_name = "Dip to Black"
+            elif clean_mode in ("diptowhite", "dip_to_white"):
+                clip = video_effects.dip_to_white_transition(clip, min(0.5, transition_duration))
+                applied_transition_name = "Dip to White"
+            elif clean_mode in ("rippledissolve", "ripple_dissolve"):
+                clip = video_effects.ripple_dissolve_transition(clip, transition_duration)
+                applied_transition_name = "Ripple Dissolve"
+            elif clean_mode in ("irisin", "iris_in"):
+                clip = video_effects.iris_in_transition(clip, transition_duration)
+                applied_transition_name = "Iris In"
+            elif clean_mode in ("irisout", "iris_out"):
+                clip = video_effects.iris_out_transition(clip, transition_duration)
+                applied_transition_name = "Iris Out"
+            elif clean_mode in ("irisbox", "iris_box"):
+                clip = video_effects.iris_box_transition(clip, transition_duration)
+                applied_transition_name = "Iris Box"
+            elif clean_mode in ("clockwipe", "clock_wipe"):
+                clip = video_effects.clock_wipe_transition(clip, transition_duration)
+                applied_transition_name = "Clock Wipe"
+            elif clean_mode in ("wipeleft", "wipe_left"):
+                clip = video_effects.linear_wipe_transition(clip, transition_duration, "left")
+                applied_transition_name = "Wipe Left"
+            elif clean_mode in ("wiperight", "wipe_right"):
+                clip = video_effects.linear_wipe_transition(clip, transition_duration, "right")
+                applied_transition_name = "Wipe Right"
+            elif clean_mode in ("crosszoom", "cross_zoom"):
+                clip = video_effects.cross_zoom_transition(clip, min(0.6, transition_duration))
+                applied_transition_name = "Cross Zoom"
+            elif clean_mode in ("jumpcut", "jump_cut"):
+                clip = video_effects.jump_cut_transition(clip)
+                applied_transition_name = "Jump Cut"
+            elif clean_mode == "shuffle":
+                shuffle_pool = [
+                    ("Cross Dissolve", lambda c: video_effects.cross_dissolve_transition(c, transition_duration)),
+                    ("Jump Cut", lambda c: video_effects.jump_cut_transition(c)),
+                    ("Iris In", lambda c: video_effects.iris_in_transition(c, transition_duration)),
+                    ("Ripple Dissolve", lambda c: video_effects.ripple_dissolve_transition(c, transition_duration)),
+                    ("Clock Wipe", lambda c: video_effects.clock_wipe_transition(c, transition_duration)),
+                    ("Dip to White", lambda c: video_effects.dip_to_white_transition(c, min(0.5, transition_duration))),
+                    ("Wipe Left", lambda c: video_effects.linear_wipe_transition(c, transition_duration, "left")),
+                    ("Wipe Right", lambda c: video_effects.linear_wipe_transition(c, transition_duration, "right")),
+                    ("Cross Zoom", lambda c: video_effects.cross_zoom_transition(c, min(0.6, transition_duration))),
+                    ("Dip to Black", lambda c: video_effects.dip_to_black_transition(c, transition_duration)),
+                    (f"SlideIn ({shuffle_side})", lambda c: video_effects.slidein_transition(c, transition_duration, shuffle_side)),
+                    ("ZoomIn", lambda c: video_effects.zoomin_transition(c, 1)),
                 ]
-                shuffle_transition = random.choice(transition_funcs)
-                clip = shuffle_transition(clip)
+                applied_transition_name, chosen_func = random.choice(shuffle_pool)
+                clip = chosen_func(clip)
+            elif clean_mode in ("auto", "auto_transition"):
+                auto_sequence = [
+                    ("Cross Dissolve", lambda c: video_effects.cross_dissolve_transition(c, transition_duration)),
+                    ("Jump Cut", lambda c: video_effects.jump_cut_transition(c)),
+                    ("Iris In", lambda c: video_effects.iris_in_transition(c, transition_duration)),
+                    ("Linear Wipe (Left)", lambda c: video_effects.linear_wipe_transition(c, transition_duration, "left")),
+                    ("Ripple Dissolve", lambda c: video_effects.ripple_dissolve_transition(c, transition_duration)),
+                    (f"SlideIn ({shuffle_side})", lambda c: video_effects.slidein_transition(c, transition_duration, shuffle_side)),
+                    ("Cross Zoom", lambda c: video_effects.cross_zoom_transition(c, min(0.6, transition_duration))),
+                    ("Clock Wipe", lambda c: video_effects.clock_wipe_transition(c, transition_duration)),
+                    ("Dip to White", lambda c: video_effects.dip_to_white_transition(c, min(0.5, transition_duration))),
+                    ("Linear Wipe (Right)", lambda c: video_effects.linear_wipe_transition(c, transition_duration, "right")),
+                    ("Iris Box", lambda c: video_effects.iris_box_transition(c, transition_duration)),
+                    ("Dip to Black", lambda c: video_effects.dip_to_black_transition(c, transition_duration)),
+                    ("ZoomIn", lambda c: video_effects.zoomin_transition(c, 1)),
+                    ("FadeIn", lambda c: video_effects.fadein_transition(c, transition_duration)),
+                ]
+                applied_transition_name, chosen_transition = auto_sequence[index % len(auto_sequence)]
+                clip = chosen_transition(clip)
+
+            if applied_transitions is not None:
+                applied_transitions.append({
+                    "clip": index + 1,
+                    "transition": applied_transition_name,
+                    "file": os.path.basename(subclipped_item.source_file_path),
+                })
+            logger.info(f"clip {index + 1}: transition applied: {applied_transition_name}")
 
             if clip.duration > max_clip_duration:
                 clip = clip.subclipped(0, max_clip_duration)
@@ -1871,8 +1968,29 @@ def generate_video(
         return bgm_mix_succeeded
 
 
+def _normalize_image_motion_str(motion) -> str:
+    raw = getattr(motion, "value", motion)
+    if isinstance(raw, str):
+        clean = raw.lower().replace("-", "_")
+        if clean.startswith("imagemotion."):
+            clean = clean.split(".", 1)[1]
+        if clean in (
+            "static",
+            "zoom",
+            "zoom_in",
+            "zoom_out",
+            "pan_left",
+            "pan_right",
+            "tilt_up",
+            "tilt_down",
+            "auto",
+        ):
+            return clean
+    return "zoom"
+
+
 def render_image_zoom_video(
-    image_path: str, clip_duration: int = 5, image_motion: ImageMotion = ImageMotion.zoom
+    image_path: str, clip_duration: int = 5, image_motion: Any = ImageMotion.zoom
 ) -> str:
     """
     Render a single image into a static or slowly zooming mp4 clip, returning output path.
@@ -1881,21 +1999,79 @@ def render_image_zoom_video(
     while static mode fixes playback duration without motion. Independent of segment transitions. Render exceptions
     are handled by callers per source-specific failure protocols.
     """
-    motion = ImageMotion(image_motion)
+    motion_str = _normalize_image_motion_str(image_motion)
     clip, _ = _open_image_clip_with_fallback(image_path)
+    # Downscale overly large high-res images (e.g. 4K/8K) to 1080p canvas bounds once before
+    # per-frame resize transforms, preventing 30+ second CPU encoding stalls per image.
+    max_dim = 1920
+    if clip.w > max_dim or clip.h > max_dim:
+        scale_down = min(max_dim / clip.w, max_dim / clip.h)
+        clip = clip.resized(scale_down)
     clip = clip.with_duration(clip_duration).with_position("center")
     temp_path = ""
     try:
-        # Only zoom mode alters dimensions; static mode preserves original framing and transparent background handling.
-        image_clip = (
-            clip.resized(lambda t: 1 + (clip_duration * 0.03) * (t / clip.duration))
-            if motion == ImageMotion.zoom
-            else clip
-        )
+        effective_motion = motion_str
+        if motion_str == "auto":
+            w, h = clip.size
+            ratio = w / h if h > 0 else 1.0
+            image_hash = int(hashlib.md5(image_path.encode()).hexdigest(), 16)
+            if ratio >= 1.2:
+                effective_motion = "pan_right" if (image_hash % 2 == 0) else "pan_left"
+            elif ratio <= 0.8:
+                effective_motion = "tilt_down" if (image_hash % 2 == 0) else "tilt_up"
+            else:
+                effective_motion = "zoom_in" if (image_hash % 2 == 0) else "zoom_out"
 
-        # Optionally, create a composite video clip containing the zoomed clip.
-        # This is useful if you want to add other elements to the video.
-        final_clip = CompositeVideoClip([image_clip], bg_color=(0, 0, 0))
+        composite_size = None
+        if effective_motion in ("zoom", "zoom_in"):
+            image_clip = clip.resized(
+                lambda t: 1 + (clip_duration * 0.03) * (t / clip.duration)
+            )
+        elif effective_motion == "zoom_out":
+            start_scale = 1 + (clip_duration * 0.03)
+            image_clip = clip.resized(
+                lambda t: max(1.0, start_scale - (clip_duration * 0.03) * (t / clip.duration))
+            )
+        elif effective_motion == "pan_left":
+            scale = 1.15
+            scaled = clip.resized(scale)
+            dx = scaled.w - clip.w
+            image_clip = scaled.with_position(
+                lambda t: (-dx + dx * (t / clip.duration), "center")
+            )
+            composite_size = (clip.w, clip.h)
+        elif effective_motion == "pan_right":
+            scale = 1.15
+            scaled = clip.resized(scale)
+            dx = scaled.w - clip.w
+            image_clip = scaled.with_position(
+                lambda t: (-dx * (t / clip.duration), "center")
+            )
+            composite_size = (clip.w, clip.h)
+        elif effective_motion == "tilt_up":
+            scale = 1.15
+            scaled = clip.resized(scale)
+            dy = scaled.h - clip.h
+            image_clip = scaled.with_position(
+                lambda t: ("center", -dy + dy * (t / clip.duration))
+            )
+            composite_size = (clip.w, clip.h)
+        elif effective_motion == "tilt_down":
+            scale = 1.15
+            scaled = clip.resized(scale)
+            dy = scaled.h - clip.h
+            image_clip = scaled.with_position(
+                lambda t: ("center", -dy * (t / clip.duration))
+            )
+            composite_size = (clip.w, clip.h)
+        else:
+            image_clip = clip
+
+        final_clip = (
+            CompositeVideoClip([image_clip], size=composite_size, bg_color=(0, 0, 0))
+            if composite_size
+            else CompositeVideoClip([image_clip], bg_color=(0, 0, 0))
+        )
         try:
             # The duration changes the rendered content, so it must be part of
             # the output identity. Different tasks may render the same image
@@ -1910,7 +2086,7 @@ def render_image_zoom_video(
             duration_identity = hashlib.sha256(str(clip_duration).encode()).hexdigest()[:16]
             video_file = os.path.join(
                 os.path.dirname(image_path),
-                f"{source_identity}.{motion.value}-{duration_identity}.mp4",
+                f"{source_identity}.{effective_motion}-{duration_identity}.mp4",
             )
             descriptor, temp_path = tempfile.mkstemp(
                 prefix=".image-zoom-",
@@ -1943,6 +2119,7 @@ def preprocess_video(
     valid_materials = []
     local_videos_dir = utils.storage_dir("local_videos", create=True)
 
+    image_idx = 0
     for material in materials:
         if not material.url:
             continue
@@ -2002,10 +2179,44 @@ def preprocess_video(
                 logger.info(f"processing image: {material_source_path}")
                 # Release probe handles opened during dimension inspection before rendering exported image clips.
                 close_clip(clip)
+                motion_str = _normalize_image_motion_str(image_motion)
+                assigned_motion = motion_str
+                if motion_str == "auto":
+                    ratio = width / height if height > 0 else 1.0
+                    if ratio >= 1.25:
+                        assigned_motion = (
+                            "pan_right"
+                            if (image_idx % 2 == 0)
+                            else "pan_left"
+                        )
+                    elif ratio <= 0.8:
+                        assigned_motion = (
+                            "tilt_down"
+                            if (image_idx % 2 == 0)
+                            else "tilt_up"
+                        )
+                    else:
+                        auto_sequence = [
+                            "zoom_in",
+                            "zoom_out",
+                            "pan_right",
+                            "pan_left",
+                        ]
+                        assigned_motion = auto_sequence[
+                            image_idx % len(auto_sequence)
+                        ]
+                    image_idx += 1
+
+                logger.info(
+                    f"image {image_idx}: applying motion '{assigned_motion}' "
+                    f"to {os.path.basename(material_source_path)}"
+                )
                 video_file = render_image_zoom_video(
-                    material_source_path, clip_duration, image_motion=image_motion
+                    material_source_path, clip_duration, image_motion=assigned_motion
                 )
                 material.url = video_file
+                material.source_info = material.source_info or {}
+                material.source_info["motion"] = assigned_motion
                 logger.success(f"image processed: {video_file}")
             else:
                 # Standard video footage only requires dimension inspection; release file handles immediately once checked.

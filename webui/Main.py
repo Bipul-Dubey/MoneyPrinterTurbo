@@ -45,6 +45,34 @@ from app.models.schema import (
     VideoParams,
     VideoTransitionMode,
 )
+
+import importlib
+import app.models.schema
+
+# Ensure schema and services always stay updated in persistent Streamlit processes
+_needs_reload = (
+    not hasattr(VideoTransitionMode, "cross_dissolve")
+    or not hasattr(getattr(sys.modules.get("app.services.video"), "video_effects", None), "jump_cut_transition")
+)
+if _needs_reload:
+    importlib.reload(app.models.schema)
+    from app.models.schema import (
+        ImageMotion,
+        MaterialInfo,
+        VideoAspect,
+        VideoConcatMode,
+        VideoFitMode,
+        VideoParams,
+        VideoTransitionMode,
+    )
+    for _mod_name in (
+        "app.services.utils.video_effects",
+        "app.services.video",
+        "app.services.task",
+        "app.services.material",
+    ):
+        if _mod_name in sys.modules:
+            importlib.reload(sys.modules[_mod_name])
 from app.services import bgm as bgm_service
 from app.services import material_upload as material_upload_service
 from app.services import (
@@ -1869,12 +1897,31 @@ support_locales = [
     "en-US",
     "es-ES",
     "fr-FR",
+    "hi-IN",
     "it-IT",
     "ru-RU",
     "vi-VN",
     "th-TH",
     "tr-TR",
 ]
+
+# Display labels for script languages in the UI dropdown
+SUPPORTED_SCRIPT_LANGUAGES = {
+    "ca-ES": "Catalan (ca-ES)",
+    "zh-CN": "Chinese Simplified (zh-CN) - 简体中文",
+    "zh-HK": "Chinese Traditional (zh-HK) - 繁體中文(香港)",
+    "zh-TW": "Chinese Traditional (zh-TW) - 繁體中文(台灣)",
+    "de-DE": "German (de-DE) - Deutsch",
+    "en-US": "English (en-US)",
+    "es-ES": "Spanish (es-ES) - Español",
+    "fr-FR": "French (fr-FR) - Français",
+    "hi-IN": "Hindi (hi-IN) - हिन्दी",
+    "it-IT": "Italian (it-IT) - Italiano",
+    "ru-RU": "Russian (ru-RU) - Русский",
+    "vi-VN": "Vietnamese (vi-VN) - Tiếng Việt",
+    "th-TH": "Thai (th-TH) - ไทย",
+    "tr-TR": "Turkish (tr-TR) - Türkçe",
+}
 
 
 # -----------------------------------------------------------------------------
@@ -2015,8 +2062,45 @@ def render_onboarding_tour():
         tour.start()
 
 
-def _render_generation_logs(task_id):
-    """Render background task log snapshots without accessing Streamlit session state from worker threads."""
+def _parse_transitions_from_logs(log_records):
+    entries = []
+    motion_pattern = re.compile(
+        r"image\s+(\d+):\s+applying\s+(?:motion|dynamic motion)\s+'([^']+)'\s+to\s+([^\s,]+)",
+        re.IGNORECASE,
+    )
+    transition_pattern = re.compile(
+        r"clip\s+(\d+):\s+transition\s+applied:\s+([^\s,]+(?:\s+\([^)]+\))?)",
+        re.IGNORECASE,
+    )
+    motions = {}
+    transitions = {}
+    for line in log_records:
+        m = motion_pattern.search(line)
+        if m:
+            motions[int(m.group(1))] = {
+                "motion": m.group(2).replace("_", " ").title(),
+                "file": m.group(3),
+            }
+        t = transition_pattern.search(line)
+        if t:
+            transitions[int(t.group(1))] = t.group(2)
+
+    max_count = max(len(motions), len(transitions), 0)
+    for i in range(1, max_count + 1):
+        m_info = motions.get(i, {})
+        entries.append(
+            {
+                "clip_index": i,
+                "file": m_info.get("file", f"Clip {i}"),
+                "motion": m_info.get("motion", "Pan / Zoom"),
+                "transition": transitions.get(i, "Fade / Slide"),
+            }
+        )
+    return entries
+
+
+def _render_generation_logs(task_id, task=None):
+    """Render background task log snapshots and transition data in tabs."""
     if config.ui.get("hide_log", False):
         return
 
@@ -2024,14 +2108,44 @@ def _render_generation_logs(task_id):
     if not log_records:
         return
 
-    st.code("\n".join(log_records))
+    task = task or sm.state.get_task(task_id) or {}
+    transition_plan = task.get("transition_plan") or []
+    if not transition_plan:
+        transition_plan = _parse_transitions_from_logs(log_records)
+
+    tab_logs, tab_transitions = st.tabs([
+        f"📋 {tr('Logs')}",
+        f"🎬 {tr('Transitions & Effects')}",
+    ])
+
+    with tab_logs:
+        st.code("\n".join(log_records))
+
+    with tab_transitions:
+        if transition_plan:
+            st.caption(tr("AI-Selected Scene Transitions & Camera Motions"))
+            import pandas as pd
+            df = pd.DataFrame(
+                [
+                    {
+                        tr("Scene"): f"Clip {entry.get('clip_index', i + 1)}",
+                        tr("Source Material"): entry.get("file", f"Material {i + 1}"),
+                        tr("Camera Motion"): entry.get("motion", "Auto"),
+                        tr("Scene Transition"): entry.get("transition", "Auto"),
+                    }
+                    for i, entry in enumerate(transition_plan)
+                ]
+            )
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info(tr("Transitions & effects will be displayed here as clips are composed."))
 
 
 def _render_generation_task_snapshot(task_id, task):
     """Render progress, failure reasons, or final video outputs based on snapshots in state storage."""
     if not task:
         st.info(tr("Generating Video"))
-        _render_generation_logs(task_id)
+        _render_generation_logs(task_id, task)
         return
 
     state = _normalize_task_state(task.get("state"))
@@ -2042,7 +2156,7 @@ def _render_generation_task_snapshot(task_id, task):
             progress,
             text=f"{tr('Task Progress')}: {progress}%",
         )
-        _render_generation_logs(task_id)
+        _render_generation_logs(task_id, task)
         return
 
     video_files = task.get("videos") or []
@@ -2051,11 +2165,11 @@ def _render_generation_task_snapshot(task_id, task):
         message = tr("Video Generation Failed")
         st.error(f"{message}: {error}" if error else message)
         if not video_files:
-            _render_generation_logs(task_id)
+            _render_generation_logs(task_id, task)
             return
     elif state != const.TASK_STATE_COMPLETE or not video_files:
         st.error(tr("Video Generation Failed"))
-        _render_generation_logs(task_id)
+        _render_generation_logs(task_id, task)
         return
 
     if state == const.TASK_STATE_COMPLETE:
@@ -2131,7 +2245,7 @@ def _render_generation_task_snapshot(task_id, task):
             f"video_files={video_files}, error={exc}"
         )
 
-    _render_generation_logs(task_id)
+    _render_generation_logs(task_id, task)
     if (
         state == const.TASK_STATE_COMPLETE
         and st.session_state.get("handled_generation_task_id") != task_id
@@ -5054,7 +5168,8 @@ def _render_script_settings(panel, params):
                 (tr("Auto Detect"), ""),
             ]
             for code in support_locales:
-                video_languages.append((code, code))
+                label = SUPPORTED_SCRIPT_LANGUAGES.get(code, code)
+                video_languages.append((label, code))
 
             selected_language_code = stable_selectbox(
                 tr("Script Language"),
@@ -5323,9 +5438,24 @@ def _render_video_settings(panel, params):
                 )
 
             # Video transition mode
+            auto_transition_val = getattr(VideoTransitionMode, "auto", None)
+            auto_transition_value = getattr(auto_transition_val, "value", "Auto")
             video_transition_modes = [
+                (tr("Auto (AI Decided)"), auto_transition_value),
                 (tr("None"), VideoTransitionMode.none.value),
                 (tr("Shuffle"), VideoTransitionMode.shuffle.value),
+                (tr("Cross Dissolve"), getattr(getattr(VideoTransitionMode, "cross_dissolve", None), "value", "CrossDissolve")),
+                (tr("Jump Cut"), getattr(getattr(VideoTransitionMode, "jump_cut", None), "value", "JumpCut")),
+                (tr("Ripple Dissolve"), getattr(getattr(VideoTransitionMode, "ripple_dissolve", None), "value", "RippleDissolve")),
+                (tr("Iris In"), getattr(getattr(VideoTransitionMode, "iris_in", None), "value", "IrisIn")),
+                (tr("Iris Out"), getattr(getattr(VideoTransitionMode, "iris_out", None), "value", "IrisOut")),
+                (tr("Iris Box"), getattr(getattr(VideoTransitionMode, "iris_box", None), "value", "IrisBox")),
+                (tr("Clock Wipe"), getattr(getattr(VideoTransitionMode, "clock_wipe", None), "value", "ClockWipe")),
+                (tr("Wipe Left"), getattr(getattr(VideoTransitionMode, "wipe_left", None), "value", "WipeLeft")),
+                (tr("Wipe Right"), getattr(getattr(VideoTransitionMode, "wipe_right", None), "value", "WipeRight")),
+                (tr("Cross Zoom"), getattr(getattr(VideoTransitionMode, "cross_zoom", None), "value", "CrossZoom")),
+                (tr("Dip to Black"), getattr(getattr(VideoTransitionMode, "dip_to_black", None), "value", "DipToBlack")),
+                (tr("Dip to White"), getattr(getattr(VideoTransitionMode, "dip_to_white", None), "value", "DipToWhite")),
                 (tr("FadeIn"), VideoTransitionMode.fade_in.value),
                 (tr("FadeOut"), VideoTransitionMode.fade_out.value),
                 (tr("SlideIn"), VideoTransitionMode.slide_in.value),
@@ -5346,11 +5476,14 @@ def _render_video_settings(panel, params):
                     (v, label) for label, v in video_transition_modes
                 )[value],
             )
-            params.video_transition_mode = VideoTransitionMode(selected_transition_mode)
+            try:
+                params.video_transition_mode = VideoTransitionMode(selected_transition_mode)
+            except (ValueError, TypeError):
+                params.video_transition_mode = getattr(VideoTransitionMode, "auto", getattr(VideoTransitionMode, "none", None))
             _set_runtime_config(
                 "ui",
                 "video_transition_mode",
-                params.video_transition_mode.value,
+                getattr(params.video_transition_mode, "value", params.video_transition_mode),
             )
 
             video_aspect_ratios = [
@@ -5413,26 +5546,46 @@ def _render_video_settings(panel, params):
             )
 
             if params.video_source in {"local", "openai_image"}:
+                auto_motion_val = getattr(getattr(ImageMotion, "auto", None), "value", "auto")
+                zoom_in_val = getattr(getattr(ImageMotion, "zoom_in", None), "value", "zoom_in")
+                zoom_out_val = getattr(getattr(ImageMotion, "zoom_out", None), "value", "zoom_out")
+                pan_left_val = getattr(getattr(ImageMotion, "pan_left", None), "value", "pan_left")
+                pan_right_val = getattr(getattr(ImageMotion, "pan_right", None), "value", "pan_right")
+                tilt_up_val = getattr(getattr(ImageMotion, "tilt_up", None), "value", "tilt_up")
+                tilt_down_val = getattr(getattr(ImageMotion, "tilt_down", None), "value", "tilt_down")
                 image_motion_labels = {
-                    ImageMotion.static.value: tr("Static Image"),
+                    auto_motion_val: tr("Auto (AI Decided)"),
                     ImageMotion.zoom.value: tr("Slow Zoom"),
+                    zoom_in_val: tr("ZoomIn"),
+                    zoom_out_val: tr("ZoomOut"),
+                    pan_left_val: tr("Pan Left"),
+                    pan_right_val: tr("Pan Right"),
+                    tilt_up_val: tr("Tilt Up"),
+                    tilt_down_val: tr("Tilt Down"),
+                    ImageMotion.static.value: tr("Static Image"),
                 }
-                params.image_motion = ImageMotion(
-                    stable_selectbox(
-                        tr("Image Motion"),
-                        options=list(image_motion_labels),
-                        default_value=_saved_ui_choice(
-                            "image_motion", list(image_motion_labels), ImageMotion.zoom.value,
-                            # Switching language or material source recreates widgets while tasks hold the lock;
-                            # restore the latest pending selection rather than writing back stale configuration.
-                            section=config.snapshot_config_with_pending(config.ui),
-                        ),
-                        key="image_motion_select",
-                        format_func=image_motion_labels.get,
-                        help=tr("Image Motion Help"),
-                    )
+                selected_motion = stable_selectbox(
+                    tr("Image Motion"),
+                    options=list(image_motion_labels),
+                    default_value=_saved_ui_choice(
+                        "image_motion", list(image_motion_labels), ImageMotion.auto.value,
+                        # Switching language or material source recreates widgets while tasks hold the lock;
+                        # restore the latest pending selection rather than writing back stale configuration.
+                        section=config.snapshot_config_with_pending(config.ui),
+                    ),
+                    key="image_motion_select",
+                    format_func=image_motion_labels.get,
+                    help=tr("Image Motion Help"),
                 )
-                _set_runtime_config("ui", "image_motion", params.image_motion.value)
+                try:
+                    params.image_motion = ImageMotion(selected_motion)
+                except (ValueError, TypeError):
+                    params.image_motion = getattr(ImageMotion, "auto", getattr(ImageMotion, "zoom", "zoom"))
+                _set_runtime_config(
+                    "ui",
+                    "image_motion",
+                    getattr(params.image_motion, "value", params.image_motion),
+                )
 
             # Remote duration range for MiniMax H3 is 4-15 seconds. Selecting MetaSo uses the full capability
             # range, preventing 2-3s from being billed as 4s, while matching WebUI with CLI and service layers.
@@ -7672,6 +7825,21 @@ def _render_subtitle_settings(panel, params):
             saved_font_name = config.ui.get(
                 "font_name", DEFAULT_SUBTITLE_SETTINGS["font_name"]
             )
+            # When Hindi script is selected and font is still set to the Chinese default,
+            # switch default to DevanagariMT.ttc so subtitles render without missing characters.
+            font_widget_key = localized_widget_key("font_name_select")
+            current_font_selection = st.session_state.get(font_widget_key)
+            if (
+                params.video_language == "hi-IN"
+                and "DevanagariMT.ttc" in font_names
+                and (
+                    current_font_selection == DEFAULT_SUBTITLE_SETTINGS["font_name"]
+                    or (not current_font_selection and saved_font_name == DEFAULT_SUBTITLE_SETTINGS["font_name"])
+                )
+            ):
+                _set_stable_widget_value("font_name_select", "DevanagariMT.ttc")
+                saved_font_name = "DevanagariMT.ttc"
+
             saved_font_name_index = 0
             if saved_font_name in font_names:
                 saved_font_name_index = font_names.index(saved_font_name)
@@ -7952,7 +8120,35 @@ def _render_subtitle_settings(panel, params):
                     selected_font_path, subtitle_preview_text
                 )
             ):
-                st.warning(tr("Subtitle Font Does Not Support Text"))
+                compatible_fonts = [
+                    f
+                    for f in font_names
+                    if video.subtitle_font_supports_text(
+                        os.path.join(font_dir, f), subtitle_preview_text
+                    )
+                ]
+                if compatible_fonts:
+                    col_warn, col_btn = st.columns([0.72, 0.28])
+                    with col_warn:
+                        st.warning(
+                            f"{tr('Subtitle Font Does Not Support Text')} (Recommended: **{compatible_fonts[0]}**)"
+                        )
+                    with col_btn:
+                        if st.button(
+                            f"Use {compatible_fonts[0]}",
+                            key="apply_compatible_font_btn",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            _set_stable_widget_value(
+                                "font_name_select", compatible_fonts[0]
+                            )
+                            _set_runtime_config(
+                                "ui", "font_name", compatible_fonts[0]
+                            )
+                            st.rerun()
+                else:
+                    st.warning(tr("Subtitle Font Does Not Support Text"))
 
             if st.button(
                 tr("Restore Default Subtitle Settings"),

@@ -20,6 +20,9 @@ PUNCTUATIONS = [
     "،",
     "؛",
     "؟",
+    # Hindi / Devanagari punctuation for natural sentence boundaries
+    "।",
+    "॥",
 ]
 
 TASK_STATE_FAILED = -1

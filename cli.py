@@ -175,11 +175,42 @@ _TRANSITION_MODE_VALUES = {
     "none": None,
     "shuffle": "Shuffle",
     "fade-in": "FadeIn",
+    "fade_in": "FadeIn",
     "fade-out": "FadeOut",
+    "fade_out": "FadeOut",
     "slide-in": "SlideIn",
+    "slide_in": "SlideIn",
     "slide-out": "SlideOut",
+    "slide_out": "SlideOut",
     "zoom-in": "ZoomIn",
+    "zoom_in": "ZoomIn",
     "zoom-out": "ZoomOut",
+    "zoom_out": "ZoomOut",
+    "cross-dissolve": "CrossDissolve",
+    "cross_dissolve": "CrossDissolve",
+    "dip-to-black": "DipToBlack",
+    "dip_to_black": "DipToBlack",
+    "dip-to-white": "DipToWhite",
+    "dip_to_white": "DipToWhite",
+    "ripple-dissolve": "RippleDissolve",
+    "ripple_dissolve": "RippleDissolve",
+    "iris-in": "IrisIn",
+    "iris_in": "IrisIn",
+    "iris-out": "IrisOut",
+    "iris_out": "IrisOut",
+    "iris-box": "IrisBox",
+    "iris_box": "IrisBox",
+    "clock-wipe": "ClockWipe",
+    "clock_wipe": "ClockWipe",
+    "wipe-left": "WipeLeft",
+    "wipe_left": "WipeLeft",
+    "wipe-right": "WipeRight",
+    "wipe_right": "WipeRight",
+    "cross-zoom": "CrossZoom",
+    "cross_zoom": "CrossZoom",
+    "jump-cut": "JumpCut",
+    "jump_cut": "JumpCut",
+    "auto": "Auto",
 }
 
 # Single-task argparse and batch manifests must share identical subtitle position values,
@@ -217,11 +248,31 @@ def _video_fit_mode(value: str) -> str:
     return normalized
 
 
+_IMAGE_MOTION_VALUES = {
+    "static": "static",
+    "zoom": "zoom",
+    "zoom-in": "zoom_in",
+    "zoom_in": "zoom_in",
+    "zoom-out": "zoom_out",
+    "zoom_out": "zoom_out",
+    "pan-left": "pan_left",
+    "pan_left": "pan_left",
+    "pan-right": "pan_right",
+    "pan_right": "pan_right",
+    "tilt-up": "tilt_up",
+    "tilt_up": "tilt_up",
+    "tilt-down": "tilt_down",
+    "tilt_down": "tilt_down",
+    "auto": "auto",
+}
+
+
 def _image_motion(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized not in {"static", "zoom"}:
-        raise argparse.ArgumentTypeError("image-motion must be one of: static, zoom")
-    return normalized
+    if normalized not in _IMAGE_MOTION_VALUES:
+        allowed = ", ".join(sorted(set(_IMAGE_MOTION_VALUES.values())))
+        raise argparse.ArgumentTypeError(f"image-motion must be one of: {allowed}")
+    return _IMAGE_MOTION_VALUES[normalized]
 
 
 # Only these values request external music generation and consume music prompts.
@@ -439,7 +490,7 @@ Batch manifests:
     video_group.add_argument(
         "--image-motion",
         type=_image_motion,
-        choices=["static", "zoom"],
+        choices=sorted(set(_IMAGE_MOTION_VALUES.values())),
         default=None,
         help="motion for local or AI-generated images (default: zoom)",
     )
@@ -447,7 +498,7 @@ Batch manifests:
         "--video-transition-mode",
         type=_transition_mode,
         default=None,
-        metavar="{none,shuffle,fade-in,fade-out,slide-in,slide-out,zoom-in,zoom-out}",
+        metavar="{none,shuffle,fade-in,fade-out,slide-in,slide-out,zoom-in,zoom-out,auto}",
         help="transition applied between source clips (default: none)",
     )
     video_group.add_argument(

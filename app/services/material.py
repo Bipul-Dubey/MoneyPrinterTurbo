@@ -1775,7 +1775,13 @@ def _download_videos_openai_image_on_demand(
     the task to prevent subsequent keyword billing.
     """
     # Direct service calls must also validate before paid requests; cannot discover invalid motion params after generation.
-    image_motion = ImageMotion(image_motion)
+    raw_motion = getattr(image_motion, "value", image_motion)
+    if isinstance(raw_motion, str):
+        raw_motion = raw_motion.lower().replace("-", "_")
+    try:
+        image_motion = ImageMotion(raw_motion)
+    except (ValueError, TypeError):
+        image_motion = ImageMotion.auto if raw_motion == "auto" else ImageMotion.zoom
     if not material_directory:
         # Generated images are billed per task and non-reusable; place in task dir by default for traceability.
         material_directory = utils.task_dir(task_id)
